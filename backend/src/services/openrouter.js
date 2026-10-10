@@ -38,6 +38,8 @@ export async function chat({ model, messages, temperature = 0, maxTokens = 600 }
     messages,
     temperature,
     max_tokens: maxTokens,
+    // Thinking models (e.g. qwen3.7-flash) otherwise spend the whole budget reasoning and return no content.
+    reasoning: { enabled: false },
     usage: { include: true },
   });
   const content = res.choices?.[0]?.message?.content;
