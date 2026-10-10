@@ -20,7 +20,8 @@ const SEGMENTS: Segment[] = [
 ];
 const LOOP = 40;
 
-function HeroFeed() {
+// The illustrated hero, kept for when the video isn't wanted.
+export function HeroFeed() {
   const reduced = usePrefersReducedMotion();
   const [t, setT] = useState(reduced ? 17 : 6);
   useEffect(() => {
@@ -97,7 +98,17 @@ export default function Landing() {
           </div>
           <p className="mt-4 text-caption text-ink-muted">One clip, up to an hour. No card.</p>
         </div>
-        <HeroFeed />
+        {/* Muted + playsInline so browsers allow autoplay, including on phones */}
+        <video
+          src="/nicked-hero.mp4"
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="auto"
+          aria-label="Nicked flagging a possible concealment on a shop camera"
+          className="aspect-video w-full rounded-md bg-feed object-cover"
+        />
       </section>
 
       {/* The problem */}
