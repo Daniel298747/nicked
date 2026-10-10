@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en-IE">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="theme-color" content="#0E1F35" />
+    <meta name="description" content="Nicked flags moments in your CCTV that look like concealment. You watch the flagged clips and decide. Nothing goes to the Gardaí until you confirm." />
+    <title>Nicked · We flag. You decide.</title>
+    <script>
+      try {
+        var t = localStorage.getItem('nicked-theme');
+        if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
