@@ -17,3 +17,23 @@ __pycache__/
 *.log
 .DS_Store
 .vercel
+
+# Python builds and model weights
+*.py[cod]
+*.pt
+
+# Builds
+dist/
+.vite/
+
+# Demo / CCTV footage (the landing-page hero video is the one tracked exception)
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+clips/
+footage/
+demo-footage/
+detector/out/
+!frontend/public/nicked-hero.mp4

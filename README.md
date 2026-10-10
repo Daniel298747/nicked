@@ -12,8 +12,8 @@
 <br />
 
 [![Built at HackUCD 2026](https://img.shields.io/badge/Built_at-HackUCD_2026-FF541C?style=for-the-badge)](#-built-at-hackucd-2026)
-[![Human in the loop](https://img.shields.io/badge/Human-in_the_loop-0E1F35?style=for-the-badge)](#-we-flag-you-decide)
-[![Tests](https://img.shields.io/badge/backend_tests-60_passing-2ea44f?style=for-the-badge)](#-tested-like-it-matters)
+[![Frontend by Daniel](https://img.shields.io/badge/Frontend-Daniel_Omotayo-0E1F35?style=for-the-badge)](#-my-part-the-frontend)
+[![Bring your own keys](https://img.shields.io/badge/API_keys-bring_your_own-0E1F35?style=for-the-badge)](#-bring-your-own-api-keys)
 
 ![React](https://img.shields.io/badge/React-0E1F35?style=flat-square&logo=react&logoColor=61DAFB)
 ![TypeScript](https://img.shields.io/badge/TypeScript-0E1F35?style=flat-square&logo=typescript&logoColor=3178C6)
@@ -35,6 +35,74 @@
 </picture>
 
 </div>
+
+<br />
+
+> [!NOTE]
+> There's no hosted demo. Clone the repo and run it on your own machine. The frontend works straight away on sample data. The full pipeline needs **your own** OpenRouter and Stripe keys: see [Bring your own API keys](#-bring-your-own-api-keys).
+
+<br />
+
+## 🎨 My part: the frontend
+
+I'm **Daniel Omotayo**, and I designed and built the web app in [`frontend/`](frontend/). Nicked was a three-person team project: the backend and detector are credited in [Team & contributions](#team--contributions).
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/queue.png" alt="Review queue" /></td>
+    <td width="50%"><img src="docs/screenshots/review.png" alt="Reviewing a flag" /></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Review queue</b><br /><sub>Only the moments worth a look, ranked by confidence</sub></td>
+    <td align="center"><b>Review a flag</b><br /><sub>Clip jumps to the flagged second; the owner answers the checklist</sub></td>
+  </tr>
+</table>
+
+- **Every screen in the owner's flow:** landing page, pricing, sign-up, upload, analysis progress, dashboard, review queue, flag review, incident report, billing and checkout success.
+- **React + TypeScript + Vite + Tailwind CSS**, styled from the Nicked brand guidelines: navy `#0E1F35`, Signal Orange `#FF541C`, Plus Jakarta Sans and JetBrains Mono.
+- **Light and dark themes** that follow the system or a manual toggle, and a **fully responsive** layout with a mobile tab bar.
+- **Keyboard-driven review:** `J` / `K` move through flags, `C` / `U` / `D` confirm, mark unsure or dismiss, and `←` / `→` skip 5 s in the clip.
+- **Preview mode:** with no backend configured, the app runs on sample data, so anyone can click through it. With `VITE_LIVE=true`, the same screens talk to the real API.
+- **Careful by design:** statuses are *Flagged · Confirmed · Cleared · Reported to Gardaí*. Signal Orange marks only the thing that needs a human, and the copy never accuses anyone. Every screen has designed loading, empty and error states.
+
+<br />
+
+## 💶 The pricing model
+
+I designed the pricing around a small Irish shop with a handful of cameras. It's cheap to start, gets cheaper per camera as the shop grows, and charges only for the extras the owner picks.
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/pricing.png" alt="Pricing page" /></td>
+    <td width="50%"><img src="docs/screenshots/billing.png" alt="Billing page" /></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Pricing</b><br /><sub>Live calculator showing every tier and add-on</sub></td>
+    <td align="center"><b>Billing</b><br /><sub>The plan the owner is on, managed through Stripe</sub></td>
+  </tr>
+</table>
+
+**Graduated per-camera tiers.** Each tier only prices the cameras inside it, so adding a camera never makes the earlier ones dearer.
+
+| Cameras | Monthly | Yearly |
+|---|---|---|
+| 1–2 | **€29** each | €290 each |
+| 3–4 | **€19** each | €190 each |
+| 5+ | **€15** each | €150 each |
+
+| Shop size | Per month |
+|---|---|
+| 1 camera | **€29** |
+| 2 cameras | **€58** |
+| 4 cameras | **€96** |
+| 8 cameras | **€156** |
+
+- 📅 **Yearly = 10 × monthly**, so paying yearly gets two months free.
+- ➕ **Add-ons:** 24/7 monitoring €16 per camera · 90-day retention €5 · extra location €19 (per month).
+- ⏱️ **Fair use:** each camera covers up to 12 hours of footage a day. Round-the-clock coverage is the 24/7 add-on.
+- 🎁 **Free first scan:** one clip, up to an hour, no card.
+
+The maths is in [`frontend/src/lib/pricing.ts`](frontend/src/lib/pricing.ts), and [`pricing.test.ts`](frontend/src/lib/pricing.test.ts) checks every example above. The backend charges the same tiers through Stripe Checkout, and Stripe's total is the final word.
 
 <br />
 
@@ -78,23 +146,15 @@ flowchart LR
 | **1. Track** | A Python service runs **YOLO26** with **ByteTrack** over the clip. **Supervision** zones mark the shelf, the till and the exit, judged at each person's feet. |
 | **2. Shortlist** | Anyone who lingers at a shelf, never reaches the till, then heads for the exit becomes a *candidate*. Most of them are innocent browsers, and that's expected. |
 | **3. Look** | ffmpeg pulls up to 15 frames from each candidate's window, and a vision model on **OpenRouter** answers `yes` / `no` / `unclear`, citing the exact frames it relied on. |
-| **4. Look closer** | Promising moments get a second pass: dense frames around the key second, **cropped to the person** using the tracker's boxes, so the model can actually see hands and pockets. |
+| **4. Look closer** | Promising moments get a second pass: dense frames around the key second, **cropped to the person** using the tracker's boxes. |
 | **5. Decide** | The owner watches the flagged seconds and answers four questions. **Confirm needs a "yes" to all four.** |
 | **6. Report** | A Garda-ready incident report: facts pulled from the database, key frames, a timeline, and an MP4 of the flagged window ±3 s. |
 
 <br />
 
-## 🖥️ Screens
+## 🖥️ More screens
 
 <table>
-  <tr>
-    <td width="50%"><img src="docs/screenshots/queue.png" alt="Review queue" /></td>
-    <td width="50%"><img src="docs/screenshots/review.png" alt="Reviewing a flag" /></td>
-  </tr>
-  <tr>
-    <td align="center"><b>Review queue</b><br /><sub>Only the moments worth a look, ranked by confidence</sub></td>
-    <td align="center"><b>Review a flag</b><br /><sub>Clip jumps to the flagged second; the owner answers the checklist</sub></td>
-  </tr>
   <tr>
     <td width="50%"><img src="docs/screenshots/dashboard.png" alt="Dashboard" /></td>
     <td width="50%"><img src="docs/screenshots/report.png" alt="Incident report" /></td>
@@ -104,12 +164,7 @@ flowchart LR
     <td align="center"><b>Incident report</b><br /><sub>Key frames, timeline, reference number, PDF download</sub></td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/screenshots/pricing.png" alt="Pricing" /></td>
-    <td width="50%"><img src="docs/screenshots/upload.png" alt="Upload a clip" /></td>
-  </tr>
-  <tr>
-    <td align="center"><b>Pricing</b><br /><sub>Per-camera, cheaper the more you have, paid through Stripe</sub></td>
-    <td align="center"><b>Upload</b><br /><sub>MP4 or MOV straight from the recorder</sub></td>
+    <td colspan="2" align="center"><img src="docs/screenshots/upload.png" alt="Upload a clip" width="50%" /><br /><b>Upload</b><br /><sub>MP4 or MOV straight from the recorder</sub></td>
   </tr>
 </table>
 
@@ -143,76 +198,28 @@ flowchart LR
 
 ## 🤝 We flag. You decide.
 
-Nicked points at moments. It never accuses anyone. That principle is enforced in the code, not just written on the landing page:
+Nicked points at moments. It never accuses anyone, and the code enforces that:
 
 - 🧑‍⚖️ **The AI never contacts anyone.** The app can't send a report anywhere. The owner downloads it and records whether they shared it.
 - ✅ **Confirm is earned.** Confirming a flag needs a "yes" to all four checklist questions: picked up an item, concealed it, passed the till, left the shop.
-- 🧾 **Evidence or it didn't happen.** If the model says "yes" but cites no frame it was actually sent, the verdict is downgraded to `unclear` and flagged. Invented timestamps are thrown away.
+- 🧾 **Evidence or it didn't happen.** If the model says "yes" but cites no frame it was actually sent, the verdict is downgraded to `unclear` and flagged.
 - 🗣️ **Careful words.** Reports are scanned for loaded language ("theft", "suspect", …), rewritten once, and flagged for the owner to edit if any remains.
-- 🙈 **AI "no" is hidden, not deleted.** Ruled-out candidates leave the queue but stay countable, so the false-alarm rate is visible.
 - 🗑️ **Footage is personal data.** Clips auto-delete after 30 days unless they back an incident report.
 
 <br />
 
-## 🧠 Under the hood
+## 🔑 Bring your own API keys
 
-<table>
-<tr>
-<td width="33%" valign="top">
+This repo ships **no keys**. Each part has a `.env.example` template, and real `.env` files are git-ignored. To run the full pipeline, sign up for these yourself:
 
-### 🎯 Detector
-`detector/` · Python
+| Service | Used for | Where to get it | Goes in | Without it |
+|---|---|---|---|---|
+| **OpenRouter** | Vision checks on each flag, incident report text | [openrouter.ai/keys](https://openrouter.ai/keys) (pay-as-you-go, a few euro of credit is plenty) | `OPENROUTER_API_KEY` | Flags still reach the queue, marked "AI check failed" |
+| **Stripe** (test mode) | Checkout, subscriptions, billing portal | Stripe dashboard → Developers → API keys. Use the `sk_test_…` key; live keys are refused. | `STRIPE_SECRET_KEY` | Subscribe and checkout fail |
+| **Stripe webhook secret** | Confirming payments | Printed by `stripe listen` (see below) | `STRIPE_WEBHOOK_SECRET` | Payments never unlock the shop |
+| **MongoDB** | The database | Local MongoDB, or a free [Atlas](https://www.mongodb.com/atlas) cluster | `MONGODB_URI` | The backend can't start |
 
-- Ultralytics **YOLO26** person detection
-- **ByteTrack** multi-object tracking
-- **Supervision** polygon zones
-- `pick_zones.py`: click to draw zones per camera
-- Returns person boxes ~5×/s and an **annotated video** with zones, IDs and boxes
-- FastAPI service, one video at a time
-
-</td>
-<td width="33%" valign="top">
-
-### ⚙️ Backend
-`backend/` · Node
-
-- **Express 5** + **MongoDB** (Mongoose)
-- Background pipeline with live progress
-- Two-pass vision check with **frame-citation validation** and a corrective retry on bad JSON
-- Any vision model via **OpenRouter**, with cost tracked per check
-- **Stripe** Checkout, graduated per-camera pricing, add-ons, idempotent webhooks
-- Daily analysis caps, free first scan, 30-day retention job
-
-</td>
-<td width="33%" valign="top">
-
-### 🎨 Frontend
-`frontend/` · React
-
-- **React** + **TypeScript** + **Vite**
-- **Tailwind CSS**, light and dark themes
-- Keyboard-driven review (`J`/`K`, `C`/`U`/`D`)
-- Fully responsive with a mobile tab bar
-- **Preview mode** on sample data with no backend needed
-
-</td>
-</tr>
-</table>
-
-<br />
-
-## 💶 Pricing model
-
-Built in and wired to a Stripe sandbox:
-
-| Cameras | Monthly | Yearly |
-|---|---|---|
-| 1–2 | **€29** each | €290 each |
-| 3–4 | **€19** each | €190 each |
-| 5+ | **€15** each | €150 each |
-
-**Add-ons:** 24/7 monitoring €16 · 90-day retention €5 · extra location €19 (per month).
-**Free first scan:** one clip, up to an hour, no card. Four cameras = **€96/month**.
+**No keys at all?** Run the frontend on its own (below). It's a full clickable preview on sample data, with no backend and no accounts.
 
 <br />
 
@@ -220,7 +227,7 @@ Built in and wired to a Stripe sandbox:
 
 > **Demo URL:** **http://localhost:5173** once all three parts are running.
 
-**Just want to look around?** The frontend has a built-in preview on sample data, with no backend needed:
+**Just want to look around?** The frontend has a built-in preview on sample data, with no backend or keys needed:
 
 ```bash
 cd frontend && npm install && npm run dev        # → http://localhost:5173
@@ -253,7 +260,7 @@ npm install
 cp .env.example .env
 ```
 
-Fill in `backend/.env`:
+Fill in `backend/.env` with **your own** keys:
 
 ```bash
 OPENROUTER_API_KEY=sk-or-...           # openrouter.ai/keys
@@ -263,7 +270,7 @@ DETECTOR_URL=http://localhost:8000     # leave empty to use the built-in mock de
 
 ```bash
 npm run stripe:seed     # once: creates the products and prices in your Stripe sandbox
-npm test                # 60 tests, no network needed
+npm test                # 60 tests, no network needed (needs ffmpeg)
 npm run dev             # → http://localhost:4000/api/health
 ```
 
@@ -286,6 +293,17 @@ VITE_LIVE=true npm run dev     # → http://localhost:5173 (Vite proxies /api to
 
 Open **http://localhost:5173**, subscribe with Stripe's test card `4242 4242 4242 4242` (any future date, any CVC), and upload a clip.
 
+<details>
+<summary><b>🪟 On Windows</b></summary>
+<br />
+
+- Install the prerequisites with `winget install OpenJS.NodeJS.LTS Gyan.FFmpeg Python.Python.3.12 Stripe.StripeCli MongoDB.Server`.
+- Activate the detector's venv with `.venv\Scripts\activate` instead of `source .venv/bin/activate`.
+- Use `copy .env.example .env` instead of `cp`.
+- In PowerShell, start the live frontend with `$env:VITE_LIVE="true"; npm run dev`.
+
+</details>
+
 | Guide | |
 |---|---|
 | 🛠️ [Backend setup, API reference and event schema](backend/README.md) | MongoDB, OpenRouter, Stripe webhooks, every endpoint |
@@ -295,38 +313,18 @@ Open **http://localhost:5173**, subscribe with Stripe's test card `4242 4242 424
 
 <br />
 
-## 🧪 Tested like it matters
-
-`npm test` in `backend/` runs **60 tests** with no database or network: real ffmpeg on generated video, a local mock of OpenRouter, stubbed Mongo models, and **signed** Stripe webhooks.
-
-| | Case | Result |
-|---|---|---|
-| ✅ | Model says "yes" and cites a real frame | Queued as possible concealment |
-| ✅ | Model says "no" | Hidden from the queue, counted as a false alarm removed |
-| ⚠️ | "Yes" with no frame it was actually sent | Downgraded to `unclear`, flagged |
-| ⚠️ | Model invents timestamps | Ignored and flagged |
-| ⚠️ | 33-second candidate | Sent as capped frames, not 66 |
-| 🛑 | Malformed JSON | One corrective retry, then `error`, still queued for a human |
-| 🛑 | Bad key / out of credits | AI checks stop early; candidates still reach the owner |
-| 🛑 | Corrupt video, wrong type, too big | `422` / `415` / `413` with a readable message |
-| 🛑 | Detector service down | `503` "Is the Python service running?" |
-| 💳 | Duplicate Stripe webhook | Processed once, payment recorded once |
-
-<br />
-
 ## 🗂️ Project structure
 
 ```
 nicked/
 ├── frontend/          React + Vite app: landing, pricing, dashboard, queue, review, reports
-├── backend/
-│   ├── src/
-│   │   ├── routes/    shop · billing · cameras · clips · events · incidents · stats
-│   │   ├── services/  ffmpeg · detector · verify · crop · report · openrouter · stripe · pricing
-│   │   ├── jobs/      processClip (pipeline) · retention · margin
-│   │   └── models/    Shop · Camera · Clip · Event · Incident · AiCall · UsageDaily
-│   ├── scripts/       seed-stripe · reset-demo-shop · list-vision-models · compare-models
-│   └── test/          60 tests
+│   └── src/
+│       ├── pages/     Landing · Pricing · Auth · Upload · Processing · Dashboard · Queue · EventReview · Report · Billing
+│       ├── components/ brand · feed (clip player) · layout · ui
+│       ├── api/       live store that talks to the backend
+│       ├── demo/      preview store on sample data
+│       └── lib/       pricing (+ tests) · formatting · hooks
+├── backend/           Express + MongoDB API: routes, pipeline jobs, OpenRouter, Stripe, 60 tests
 ├── detector/          YOLO26 + ByteTrack + Supervision service, zone picker
 ├── api/               Vercel function entry (the Express app)
 ├── Dockerfile         API + detector worker for video analysis
@@ -343,27 +341,13 @@ Nicked was designed and built in a weekend at **HackUCD 2026**, University Colle
 
 | | Area | What they built |
 |---|---|---|
-| **Brian Odeyale** · [@brianodeyale64](https://github.com/brianodeyale64) | Backend: Node API | Express + MongoDB API: clip upload, ffmpeg frame sampling, two-pass OpenRouter verification, detector client, review queue, confirm / dismiss, Garda incident reports, Stripe billing and per-camera pricing, the backend test suite |
-| **Cormac Kildea** · [@cormackildea](https://github.com/cormackildea) | Backend: Python detector | YOLO26 + ByteTrack + Supervision detector service (FastAPI, `POST /detect` on :8000), zone picker, Vercel / Docker / Render deployment, serverless and brand pieces of the API |
-| **Daniel Omotayo** · [@Daniel298747](https://github.com/Daniel298747) | Frontend | React + TypeScript + Vite app: landing page, pricing, dashboard, review queue, flag review, incident reports |
+| **Daniel Omotayo** · [@Daniel298747](https://github.com/Daniel298747) | Frontend | React + TypeScript + Vite app: landing page, pricing, dashboard, review queue, flag review, incident reports, billing. Designed the pricing model. |
+| **Brian Odeyale** · [@brianodeyale64](https://github.com/brianodeyale64) | Backend + APIs | Express + MongoDB API: clip upload, ffmpeg frame sampling, two-pass OpenRouter verification, detector client, review queue, confirm / dismiss, Garda incident reports, Stripe billing and per-camera pricing, the backend test suite |
+| **Cormac Kildea** · [@cormackildea](https://github.com/cormackildea) | Python YOLO detector | YOLO26 + ByteTrack + Supervision detector service (FastAPI, `POST /detect` on :8000), zone picker, Vercel / Docker / Render deployment |
 
-<details>
-<summary>How this was verified against the git history</summary>
-<br />
+The full git history is kept, so every commit is still credited to whoever wrote it. The frontend reached the team repo through Cormac's pull request (#2), so git shows those files under his name. This copy also merges in my original frontend commit (`48ca4f4`), so it appears under my name too.
 
-Lines still in the code today (`git blame`), by folder:
-
-| Path | Lines by author | Commits |
-|---|---|---|
-| `backend/src` | Brian 3,353 · Cormac 281 | Brian · Cormac (deploy, brand, serverless) |
-| `backend/test` · `backend/scripts` | Brian 1,231 · Cormac 59 | Brian · Cormac (`brand.test.js`) |
-| `detector/` | Cormac 649 | Cormac |
-| `frontend/` | 6,205 | Committed by Cormac in PR #2; written by Daniel |
-| `api/` · `deploy/` · `Dockerfile` · `render.yaml` · `vercel.json` · `docs/DEPLOY.md` | Cormac | Cormac |
-
-Daniel's frontend reached the repository through Cormac's pull request, so git attributes those commits to Cormac. The history has been left as it is.
-
-</details>
+The team repo is at [brianodeyale64/nicked](https://github.com/brianodeyale64/nicked).
 
 <br />
 
