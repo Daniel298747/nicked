@@ -6,7 +6,7 @@ import { Event, QUEUE_VERDICTS } from '../models/Event.js';
 import { Shop } from '../models/Shop.js';
 import { detectCandidates } from '../services/detector.js';
 import { verifyCandidate } from '../services/verify.js';
-import { measureBrightness } from '../services/ffmpeg.js';
+import { measureBrightness, transcodeForWeb } from '../services/ffmpeg.js';
 import { describeAiError, isFatalAiError } from '../services/openrouter.js';
 
 async function mapPool(items, limit, fn) {
@@ -28,7 +28,7 @@ const overlaps = (a, b) => a.startSec < b.endSec && b.startSec < a.endSec;
  * upload → YOLO candidates → OpenRouter check per candidate → events in Mongo.
  * Runs in the background; the frontend polls GET /api/clips/:id for progress.
  */
-export async function processClip(clipId, { model = config.openrouter.detectModel } = {}) {
+export async function processClip(clipId, { model = config.openrouter.detectModel, zoomModel } = {}) {
   const clip = await Clip.findById(clipId);
   if (!clip) return;
   const shop = await Shop.findById(clip.shop);
@@ -77,7 +77,22 @@ export async function processClip(clipId, { model = config.openrouter.detectMode
       frameWidth: detection.frameWidth,
       frameHeight: detection.frameHeight,
       ms: detection.ms,
+      annotatedPath: undefined,
     };
+    if (detection.annotatedVideoPath) {
+      try {
+        clip.detector.annotatedPath = await transcodeForWeb(
+          detection.annotatedVideoPath,
+          path.join(config.uploadDir, 'annotated', `${clip.id}.mp4`),
+        );
+      } catch {
+        warnings.push("The detector's annotated video couldn't be converted for the browser, so only the original is available.");
+      }
+    }
+    const withBoxes = detection.candidates.filter((c) => c.boxes?.length).length;
+    if (detection.candidates.length && !withBoxes) {
+      warnings.push('The detector sent no person boxes, so close-ups use the full frame instead of a crop around the person.');
+    }
 
     // Reviewed events from a previous run are kept; don't recreate duplicates of them.
     const reviewed = await Event.find({ clip: clip._id, status: { $ne: 'pending' } }).select('startSec endSec');
@@ -93,11 +108,22 @@ export async function processClip(clipId, { model = config.openrouter.detectMode
     let fatal = null;
     const results = await mapPool(candidates, config.verify.concurrency, async (candidate) => {
       let out;
+      const evidenceKey = `${clip.id}/${Math.round(candidate.startSec * 10)}-${candidate.trackId ?? 'x'}-${started}`;
       if (fatal) {
         out = { ai: { verdict: 'error', error: fatal, model }, eventType: 'ai_check_failed', flags: [] };
       } else {
         try {
-          out = await verifyCandidate({ videoPath: clip.storedPath, candidate, model, layoutNotes: shop?.layoutNotes, workDir });
+          out = await verifyCandidate({
+            videoPath: clip.storedPath,
+            candidate,
+            model,
+            zoomModel: zoomModel || config.openrouter.zoomModel,
+            layoutNotes: shop?.layoutNotes,
+            workDir,
+            evidenceDir: path.join(config.uploadDir, 'evidence', evidenceKey),
+            boxSourceWidth: detection.frameWidth,
+          });
+          out.ai.evidenceKey = evidenceKey;
         } catch (err) {
           const message = describeAiError(err);
           if (isFatalAiError(err)) fatal = message;
@@ -108,7 +134,14 @@ export async function processClip(clipId, { model = config.openrouter.detectMode
       return { candidate, ...out };
     });
 
-    // 3. Save events (replacing unreviewed ones from earlier runs)
+    // 3. Save events (replacing unreviewed ones from earlier runs, and their evidence images)
+    const replaced = await Event.find({ clip: clip._id, status: 'pending' }).select('ai.evidenceKey');
+    await Promise.all(
+      replaced
+        .map((e) => e.ai?.evidenceKey)
+        .filter(Boolean)
+        .map((key) => rm(path.join(config.uploadDir, 'evidence', key), { recursive: true, force: true })),
+    );
     await Event.deleteMany({ clip: clip._id, status: 'pending' });
     const docs = results.map(({ candidate, ai, eventType, flags }) => ({
       shop: clip.shop,
@@ -122,6 +155,7 @@ export async function processClip(clipId, { model = config.openrouter.detectMode
         shelfSeconds: candidate.shelfSeconds,
         visitedTill: candidate.visitedTill,
         rule: candidate.rule,
+        boxCount: candidate.boxes?.length || 0,
       },
       ai,
       eventType,

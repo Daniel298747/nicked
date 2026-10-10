@@ -23,6 +23,8 @@ export const config = {
   uploadDir: path.resolve(process.env.UPLOAD_DIR || 'uploads'),
   maxUploadMb: num(process.env.MAX_UPLOAD_MB, 300),
   zonesFile: path.resolve(process.env.ZONES_FILE || 'zones.json'),
+  // Footage older than this is deleted automatically, unless it backs an incident report. 0 turns it off.
+  retentionDays: Number.isFinite(Number(process.env.RETENTION_DAYS)) ? Number(process.env.RETENTION_DAYS) : 30,
   // Lets you build the UI before Stripe works. Never turn this on for the demo.
   devBypassPaywall: process.env.DEV_BYPASS_PAYWALL === 'true',
 
@@ -38,6 +40,8 @@ export const config = {
     apiKey: process.env.OPENROUTER_API_KEY || '',
     baseURL: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
     detectModel,
+    // The close-up second look can use a stronger model; it only runs on moments worth a closer look.
+    zoomModel: process.env.ZOOM_MODEL || detectModel,
     reportModel: process.env.REPORT_MODEL || detectModel,
     timeoutMs: num(process.env.OPENROUTER_TIMEOUT_MS, 60_000),
   },
@@ -48,6 +52,15 @@ export const config = {
     maxFrames: num(process.env.MAX_FRAMES_PER_EVENT, 16),
     frameWidth: num(process.env.FRAME_WIDTH, 640),
     concurrency: num(process.env.VERIFY_CONCURRENCY, 3),
+    // Close-up pass: dense frames around the moment the first pass pointed at.
+    closeLook: process.env.CLOSE_LOOK !== 'false',
+    closeLookSeconds: num(process.env.CLOSE_LOOK_SECONDS, 5),
+    closeLookFps: num(process.env.CLOSE_LOOK_FPS, 3),
+    closeLookWidth: num(process.env.CLOSE_LOOK_WIDTH, 960),
+    // A first-pass "no" at or above this confidence is trusted without a close-up.
+    trustNoAbove: Number.isFinite(Number(process.env.TRUST_NO_ABOVE)) ? Number(process.env.TRUST_NO_ABOVE) : 0.7,
+    // Seconds of padding detect.py adds before the person's first shelf visit (PAD_BEFORE).
+    detectorPadBefore: Number.isFinite(Number(process.env.DETECTOR_PAD_BEFORE)) ? Number(process.env.DETECTOR_PAD_BEFORE) : 3,
     // Average luma (0–255) below this adds a "footage is very dark" warning.
     darkThreshold: num(process.env.DARK_THRESHOLD, 45),
   },

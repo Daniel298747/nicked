@@ -22,8 +22,10 @@ before(async () => {
     let body = '';
     req.on('data', (d) => (body += d));
     req.on('end', () => {
-      requests.push(JSON.parse(body));
-      const next = replies.shift() || { status: 500, text: 'no reply queued' };
+      const parsed = JSON.parse(body);
+      requests.push(parsed);
+      const next = replies.shift() || { status: 400, text: 'no reply queued' };
+      if (typeof next.text === 'function') next.text = next.text(parsed);
       if (next.status && next.status !== 200) {
         res.writeHead(next.status, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({ error: { message: next.text, code: next.status } }));
@@ -43,10 +45,13 @@ before(async () => {
   process.env.UPLOAD_DIR = path.join(tmp, 'uploads');
   process.env.MOCK_DETECTIONS_DIR = path.join(tmp, 'mock');
   mods = {
+    config: (await import('../src/config.js')).config,
     verify: await import('../src/services/verify.js'),
     detector: await import('../src/services/detector.js'),
     openrouter: await import('../src/services/openrouter.js'),
   };
+  // Single-pass behaviour is tested first; the close-up tests at the end switch it back on.
+  mods.config.verify.closeLook = false;
 });
 
 after(() => {
@@ -173,4 +178,88 @@ test('incident narrative: loaded words trigger one rewrite', async () => {
   replies.push({ text: 'The thief leaves.' }, { text: 'The thief still leaves.' });
   const stubborn = await report.writeNarrative({ reference: 'INC-2' }, { model: 'mock/text-1' });
   assert.match(stubborn.languageWarnings[0], /Edit before sharing/);
+});
+
+
+// ---------- Close-up second look ----------
+const sharpMeta = async (file) => (await import('sharp')).default(file).metadata();
+const factsIn = (reqBody) => reqBody.messages[1].content[0].text;
+
+test('close look: an "unclear" first look triggers dense frames around the cited moment, and its "yes" wins', async () => {
+  mods.config.verify.closeLook = true;
+  requests.length = 0;
+  let cited;
+  replies.push({ text: (req) => {
+    cited = labelsIn(req)[5];
+    return JSON.stringify({ verdict: 'unclear', confidence: 0.4, reason: `Hand moves toward jacket around ${cited}; hard to see.`, frames_referenced: [cited], notes: 'Small in frame' });
+  } });
+  let closeLabels;
+  replies.push({ text: (req) => {
+    closeLabels = labelsIn(req);
+    return JSON.stringify({ verdict: 'yes', confidence: 0.86, reason: `Places a small box in the right jacket pocket at ${closeLabels[7]}.`, frames_referenced: [closeLabels[6], closeLabels[7]], notes: '' });
+  } });
+
+  const evidenceDir = path.join(tmp, 'evidence', 'c1');
+  const r = await mods.verify.verifyCandidate({ videoPath: video, candidate, model: 'mock/cheap', zoomModel: 'mock/strong', evidenceDir });
+
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].model, 'mock/cheap');
+  assert.equal(requests[1].model, 'mock/strong'); // escalated to the stronger model
+  assert.match(factsIn(requests[1]), /close-up second look/);
+  assert.match(factsIn(requests[1]), /higher resolution/);
+
+  // 5 s at 3 fps, centred on the cited frame
+  assert.ok(closeLabels.length >= 14 && closeLabels.length <= 16, `${closeLabels.length} close-up frames`);
+  const citedSec = (await import('../src/utils/time.js')).parseTime(cited);
+  const firstSec = (await import('../src/utils/time.js')).parseTime(closeLabels[0]);
+  assert.ok(Math.abs(firstSec - (citedSec - 2.5)) < 0.15, `window starts at ${firstSec}, cited ${citedSec}`);
+
+  assert.equal(r.ai.verdict, 'yes');
+  assert.equal(r.ai.confidence, 0.86);
+  assert.equal(r.ai.closeLook, true);
+  assert.deepEqual(r.ai.passes.map((p) => p.verdict), ['unclear', 'yes']);
+  assert.equal(r.eventType, 'possible_concealment');
+
+  // Evidence frames are the close-up frames it cited, at the higher resolution
+  assert.equal(r.ai.evidence.length, 2);
+  assert.equal(r.ai.thumbnail, r.ai.evidence[0].file);
+  const meta = await sharpMeta(path.join(evidenceDir, r.ai.evidence[0].file));
+  assert.equal(meta.width, 960);
+});
+
+test('close look: crops around the tracked person when the detector sends boxes', async () => {
+  requests.length = 0;
+  const boxes = [];
+  for (let t = 4; t <= 37; t += 0.5) boxes.push({ t, box: [200, 100, 400, 500] }); // 200×400 px person
+  const withBoxes = { ...candidate, boxes };
+  replies.push({ text: (req) => JSON.stringify({ verdict: 'unclear', confidence: 0.3, reason: 'Hands not visible.', frames_referenced: [labelsIn(req)[2]], notes: '' }) });
+  replies.push({ text: (req) => JSON.stringify({ verdict: 'no', confidence: 0.8, reason: 'Puts the item back on the shelf.', frames_referenced: [labelsIn(req)[4]], notes: '' }) });
+
+  const evidenceDir = path.join(tmp, 'evidence', 'c2');
+  const r = await mods.verify.verifyCandidate({ videoPath: video, candidate: withBoxes, model: 'mock/cheap', evidenceDir });
+  assert.match(factsIn(requests[1]), /cropped around the tracked person/);
+  assert.equal(r.ai.verdict, 'no');
+  assert.equal(r.ai.cropped, true);
+  const meta = await sharpMeta(path.join(evidenceDir, r.ai.evidence[0].file));
+  assert.equal(meta.width, 340); // 200 px box + 35% padding each side
+  assert.equal(meta.height, 680);
+});
+
+test('close look: skipped when the first look is a confident "no"', async () => {
+  requests.length = 0;
+  replies.push({ text: '{"verdict":"no","confidence":0.9,"reason":"Leaves empty-handed.","frames_referenced":[],"notes":""}' });
+  const r = await mods.verify.verifyCandidate({ videoPath: video, candidate, model: 'mock/cheap' });
+  assert.equal(requests.length, 1);
+  assert.equal(r.ai.closeLook, false);
+  assert.equal(r.ai.passes.length, 1);
+});
+
+test('close look: if it fails, the first look is kept and flagged', async () => {
+  requests.length = 0;
+  replies.push({ text: '{"verdict":"unclear","confidence":0.4,"reason":"Blocked view.","frames_referenced":[],"notes":""}' });
+  replies.push({ status: 400, text: 'model does not support images' });
+  const r = await mods.verify.verifyCandidate({ videoPath: video, candidate, model: 'mock/cheap' });
+  assert.equal(r.ai.verdict, 'unclear');
+  assert.equal(r.ai.passes.length, 1);
+  assert.ok(r.flags.some((f) => f.startsWith('Close-up check failed')));
 });

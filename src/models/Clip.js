@@ -24,6 +24,7 @@ const clipSchema = new mongoose.Schema(
       frameWidth: Number,
       frameHeight: Number,
       ms: Number,
+      annotatedPath: String, // video with boxes, track IDs and zones drawn on (from the YOLO side)
     },
     model: String, // OpenRouter model used for the checks
     brightness: Number, // average luma 0–255
@@ -53,6 +54,9 @@ clipSchema.methods.toPublic = function toPublic() {
   delete o._id;
   delete o.storedPath;
   o.shop = String(o.shop);
+  o.videoUrl = `/api/clips/${o.id}/video`;
+  o.annotatedVideoUrl = o.detector?.annotatedPath ? `/api/clips/${o.id}/annotated` : null;
+  if (o.detector) delete o.detector.annotatedPath;
   return o;
 };
 

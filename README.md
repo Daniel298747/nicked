@@ -4,11 +4,16 @@ Express + MongoDB API for the shop CCTV review tool.
 
 ```
 upload video ─► YOLO detector (teammate's Python service, or mock)
-            ─► candidates: shelf → no till → exit
-            ─► per candidate: ffmpeg samples ≤16 frames ─► OpenRouter vision check (yes / no / unclear)
-            ─► review queue (AI "no" hidden but kept) ─► owner checklist ─► confirm / dismiss / unsure
+            ─► candidates: shelf → no till → exit  (+ person boxes, + annotated video)
+            ─► per candidate, AI check in two passes:
+                 1. overview: ≤16 frames across the window (cheap model)
+                 2. close look: 3 fps for 5 s around the moment pass 1 pointed at,
+                    cropped to the tracked person when boxes are sent (ZOOM_MODEL, can be stronger)
+               skipped when pass 1 is a confident "no"; the close look's verdict wins
+            ─► review queue with the exact frames the AI cited (AI "no" hidden but kept)
+            ─► owner checklist ─► confirm / dismiss / unsure
             ─► incident report (facts from DB, wording by OpenRouter text model) ─► owner decides whether to share
-Stripe sandbox subscription unlocks uploads and reports.
+Stripe sandbox subscription unlocks uploads and reports. Footage auto-deletes after 30 days unless it backs a report.
 ```
 
 The AI never contacts anyone. The owner always decides.
@@ -67,14 +72,17 @@ All responses are JSON. Errors look like `{ "error": "readable message", "code":
 | POST | `/api/billing/checkout` | → `{ url }` of Stripe Checkout. Redirect the browser there |
 | GET | `/api/billing/verify?session_id=` | Success page confirms payment and unlocks the shop |
 | POST | `/api/billing/webhook` | Stripe only |
-| POST | `/api/clips` | 🔒 multipart `clip` (+ optional `zones` JSON, `model`). → 202, processing starts |
+| POST | `/api/clips` | 🔒 multipart `clip` (+ optional `zones` JSON, `model`, `zoomModel`). → 202, processing starts |
 | GET | `/api/clips` | All clips |
 | GET | `/api/clips/:id` | Clip + progress (`stage`, `progress.checked/total`) + its events. Poll this |
-| POST | `/api/clips/:id/reprocess` | 🔒 `{ model? }` re-run, e.g. with another model |
-| GET | `/api/clips/:id/video` | Stream for `<video src>` (seekable) |
+| POST | `/api/clips/:id/reprocess` | 🔒 `{ model?, zoomModel? }` re-run, e.g. with another model |
+| GET | `/api/clips/:id/video` | Stream for `<video src>` (seekable). Also in `clip.videoUrl` |
+| GET | `/api/clips/:id/annotated` | YOLO's video with boxes, IDs and zones drawn on, if sent. `clip.annotatedVideoUrl` is null otherwise |
 | DELETE | `/api/clips/:id` | Delete footage, events and reports |
 | GET | `/api/events?view=queue` | Review queue (AI yes/unclear/error, pending), best first. Also `ai_ruled_out`, `reviewed`, `all`; `&clip=<id>` |
 | GET | `/api/events/:id` | One event (+ its incident, if any) |
+| GET | `/api/events/:id/thumbnail` | Key frame for the queue card (`event.ai.thumbnailUrl`) |
+| GET | `/api/events/:id/evidence/:i` | Frames the AI cited (`event.ai.evidence[i].url`, with its `label` time) |
 | POST | `/api/events/:id/review` | `{ decision: confirmed\|dismissed\|unsure, checklist: { pickedUpItem, concealedItem, avoidedTill, leftShop }, note? }` |
 | POST | `/api/events/:id/incident` | 🔒 Generate the report for a confirmed event (`?regenerate=true` to redo) |
 | GET | `/api/incidents` / `/:id` | Reports |
@@ -89,14 +97,26 @@ All responses are JSON. Errors look like `{ "error": "readable message", "code":
 
 ```json
 {
-  "id": "…", "startTime": "00:39.0", "endTime": "01:12.0",
-  "candidate": { "trackId": 4, "shelfSeconds": 6.4, "visitedTill": false, "rule": "shelf -> no till -> exit" },
-  "ai": { "verdict": "yes", "confidence": 0.82, "reason": "Places item in jacket pocket at 00:45.5.",
-          "framesReferenced": ["00:45.5"], "notes": "", "model": "…", "framesSent": 16 },
+  "id": "…", "startSec": 39, "endSec": 72, "startTime": "00:39.0", "endTime": "01:12.0",
+  "candidate": { "trackId": 4, "shelfSeconds": 6.4, "visitedTill": false, "rule": "shelf -> no till -> exit", "boxCount": 160 },
+  "ai": {
+    "verdict": "yes", "confidence": 0.86,
+    "reason": "Places a small box in the right jacket pocket at 00:45.7.",
+    "framesReferenced": ["00:45.3", "00:45.7"], "notes": "", "model": "…",
+    "closeLook": true, "cropped": true, "verdictChangedByCloseLook": true,
+    "passes": [
+      { "kind": "overview",   "verdict": "unclear", "confidence": 0.4,  "framesSent": 16, "window": { "startTime": "00:39.0", "endTime": "01:10.0" } },
+      { "kind": "close_look", "verdict": "yes",     "confidence": 0.86, "framesSent": 15, "window": { "startTime": "00:43.0", "endTime": "00:47.7" }, "cropped": true }
+    ],
+    "thumbnailUrl": "/api/events/…/thumbnail",
+    "evidence": [ { "label": "00:45.3", "cropped": true, "url": "/api/events/…/evidence/0" } ]
+  },
   "eventType": "possible_concealment", "inQueue": true, "flags": [],
   "status": "pending", "checklist": { "pickedUpItem": null, "concealedItem": null, "avoidedTill": null, "leftShop": null }
 }
 ```
+
+Frontend ideas that make this land: an evidence strip of `ai.evidence` images under the player (click one → `video.currentTime` = its time), the two passes shown as "First look: unclear → Close look: yes", and a toggle between `clip.videoUrl` and `clip.annotatedVideoUrl`.
 
 ## Demo flow from the terminal
 
@@ -115,7 +135,7 @@ curl -s localhost:4000/api/stats
 
 ## Testing
 
-`npm test` runs 35 tests with no database or network: real ffmpeg on generated video, a local mock of OpenRouter, stubbed Mongo models, and signed Stripe webhooks.
+`npm test` runs 47 tests with no database or network: real ffmpeg on generated video, a local mock of OpenRouter, stubbed Mongo models, and signed Stripe webhooks.
 
 | Type | Case | Result |
 |---|---|---|
@@ -124,7 +144,12 @@ curl -s localhost:4000/api/stats
 | Boundary | Model says "yes" but cites no frame it was sent | Downgraded to "unclear" with a flag |
 | Boundary | Model invents timestamps | Ignored and flagged |
 | Boundary | Detector times run past the video end | Clamped |
-| Boundary | 33 s candidate | Sent as 16 frames, not 66 |
+| Boundary | 33 s candidate | Overview sent as 16 frames, not 66 |
+| Boundary | First look "unclear" / "yes" / weak "no" | Close look: 3 fps for 5 s around the cited moment, at 960px or cropped to the person |
+| Boundary | First look confident "no" (≥ 0.7) | Close look skipped (saves cost) |
+| Boundary | Person near the frame edge / detector at a different resolution | Crop clamped to the frame / boxes rescaled |
+| Failure | Close look fails | First look kept, flagged |
+| Failure | Annotated video in OpenCV's `mp4v` codec | Re-encoded to H.264 so browsers can play it |
 | Failure | Malformed JSON | One corrective retry |
 | Failure | Malformed twice / timeout / bad key | Verdict "error", still queued for manual review; bad key stops further calls |
 | Failure | Corrupt video, wrong file type, too big, bad zones | 422 / 415 / 413 / 400 with a readable message |
@@ -135,7 +160,7 @@ curl -s localhost:4000/api/stats
 
 ## Experiments for the pitch
 
-- `GET /api/stats`: tracker candidates vs how many the AI ruled out (`ai.falseAlarmsRemoved`), owner agreement with the AI, average processing time, total AI cost.
+- `GET /api/stats`: tracker candidates vs how many the AI ruled out (`ai.falseAlarmsRemoved`), how often the close look changed the first look's answer (`ai.closeLook.changes`, e.g. `"unclear → yes": 3`), owner agreement with the AI, average processing time, total AI cost.
 - `npm run models:compare -- clips/test_01.mp4 mock-detections/test_01.json modelA,modelB expected.json` runs the same candidates through several models and writes `model-comparison.csv`. `expected.json` is your own labels: `{ "4": "yes", "9": "no" }`.
 
 ## Layout
@@ -145,8 +170,8 @@ src/
   app.js, index.js, config.js, db.js
   models/      Shop, Clip, Event, Incident, StripeEvent
   routes/      shop, billing, clips, events, incidents, stats
-  services/    ffmpeg, detector, verify (vision check), report, openrouter, stripe, aiJson, language
-  jobs/        processClip (background pipeline)
+  services/    ffmpeg, detector, verify (two-pass vision check), crop, report, openrouter, stripe, aiJson, language
+  jobs/        processClip (background pipeline), retention (30-day auto-delete)
 scripts/       seed-stripe, list-vision-models, compare-models
 docs/          DETECTOR_CONTRACT.md
 ```

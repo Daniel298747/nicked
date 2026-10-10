@@ -11,7 +11,7 @@ router.use(loadShop);
  * how many tracker candidates the AI removed, and how often the owner agreed with the AI.
  */
 router.get('/', async (req, res) => {
-  const events = await Event.find({ shop: req.shop._id }).select('ai.verdict ai.model status').lean();
+  const events = await Event.find({ shop: req.shop._id }).select('ai.verdict ai.model ai.passes ai.cropped status').lean();
   const clips = await Clip.find({ shop: req.shop._id, status: 'done' }).select('processingMs usage detector.ms').lean();
 
   const count = (fn) => events.filter(fn).length;
@@ -48,6 +48,19 @@ router.get('/', async (req, res) => {
       falseAlarmsRemoved: aiNo,
       shareRemoved: candidates ? +(aiNo / candidates).toFixed(2) : null,
       byModel,
+      closeLook: {
+        runs: count((e) => e.ai?.passes?.length > 1),
+        croppedToPerson: count((e) => e.ai?.passes?.length > 1 && e.ai?.cropped),
+        // How often the close-up changed the first look's answer, e.g. "unclear" → "yes"
+        changedVerdict: count((e) => e.ai?.passes?.length > 1 && e.ai.passes[0].verdict !== e.ai.verdict),
+        changes: events
+          .filter((e) => e.ai?.passes?.length > 1 && e.ai.passes[0].verdict !== e.ai.verdict)
+          .reduce((acc, e) => {
+            const k = `${e.ai.passes[0].verdict} → ${e.ai.verdict}`;
+            acc[k] = (acc[k] || 0) + 1;
+            return acc;
+          }, {}),
+      },
     },
     owner: {
       pending: count((e) => e.status === 'pending'),

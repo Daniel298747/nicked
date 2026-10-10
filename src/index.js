@@ -5,6 +5,7 @@ import { connectDb } from './db.js';
 import { createApp } from './app.js';
 import { Clip } from './models/Clip.js';
 import { getDemoShop } from './middleware/shop.js';
+import { scheduleRetention } from './jobs/retention.js';
 
 async function main() {
   for (const dir of ['clips', 'frames', 'exports']) await mkdir(path.join(config.uploadDir, dir), { recursive: true });
@@ -24,10 +25,12 @@ async function main() {
   if (stuck.modifiedCount) console.log(`Marked ${stuck.modifiedCount} interrupted clip(s) as failed.`);
 
   const shop = await getDemoShop();
+  scheduleRetention();
   createApp().listen(config.port, () => {
     console.log(`\n${config.appName} API on http://localhost:${config.port}`);
     console.log(`Demo shop: "${shop.name}" (${shop.subscriptionStatus})`);
-    console.log(`Detector: ${config.detector.url || 'mock'} | Model: ${config.openrouter.detectModel}`);
+    console.log(`Detector: ${config.detector.url || 'mock'} | Model: ${config.openrouter.detectModel} | Close-up model: ${config.verify.closeLook ? config.openrouter.zoomModel : 'off'}`);
+    console.log(`Footage retention: ${config.retentionDays ? `${config.retentionDays} days` : 'off'}`);
     for (const w of configWarnings()) console.warn(`⚠ ${w}`);
   });
 }

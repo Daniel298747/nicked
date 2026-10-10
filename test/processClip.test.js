@@ -4,7 +4,7 @@ import { test, before, after, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, copyFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -45,6 +45,8 @@ before(async () => {
     { track_id: 4, start_time: 2, end_time: 14, shelf_seconds: 5.2, visited_till: false, rule: 'shelf -> no till -> exit' },
     { track_id: 9, start_time: 16, end_time: 29, shelf_seconds: 3.1, visited_till: false, rule: 'shelf -> no till -> exit' },
   ]));
+
+  copyFileSync(video, path.join(process.env.MOCK_DETECTIONS_DIR, 'shopfloor.annotated.mp4'));
 
   const mongoose = (await import('mongoose')).default;
   mongoose.set('bufferCommands', false);
@@ -105,6 +107,17 @@ test('job: YOLO candidates → AI verdicts → events, with counts, cost and que
   assert.equal(yes.startTime, '00:02.0');
   assert.equal(no.ai.verdict, 'no');
   assert.equal(no.inQueue, false); // kept for the "false alarms removed" stat, hidden from the queue
+
+  // Close-up second look ran for the "yes" but not for the confident "no"
+  assert.deepEqual(yes.ai.passes.map((p) => p.kind), ['overview', 'close_look']);
+  assert.equal(no.ai.passes.length, 1);
+  // Evidence frames saved where the event can serve them
+  assert.ok(yes.ai.evidence.length >= 1);
+  assert.ok(existsSync(path.join(process.env.UPLOAD_DIR, 'evidence', yes.ai.evidenceKey, yes.ai.thumbnail)));
+  // Annotated video from the YOLO side is passed through, and the missing boxes are explained
+  assert.match(clip.detector.annotatedPath, /annotated[\/\\]c1\.mp4$/); // re-encoded as H.264 for the browser
+  assert.ok(existsSync(clip.detector.annotatedPath));
+  assert.ok(clip.warnings.some((w) => w.includes('no person boxes')));
 });
 
 test('job: a bad OpenRouter key stops AI checks early but candidates still reach the owner', async () => {

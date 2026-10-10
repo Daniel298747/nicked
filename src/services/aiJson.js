@@ -76,15 +76,37 @@ const candidateSchema = z.object({
   shelf_seconds: z.coerce.number().optional(),
   visited_till: z.boolean().optional(),
   rule: z.string().optional(),
+  boxes: z.array(z.unknown()).optional(),
 });
+
+// One bounding box of the tracked person: seconds into the video + [x1, y1, x2, y2] in original pixels.
+// Accepts { t, box } or { t, xyxy }.
+const boxSchema = z
+  .object({
+    t: z.coerce.number().min(0),
+    box: z.array(z.coerce.number()).length(4).optional(),
+    xyxy: z.array(z.coerce.number()).length(4).optional(),
+  })
+  .transform((b) => ({ t: b.t, box: b.box || b.xyxy }))
+  .refine((b) => b.box && b.box[2] > b.box[0] && b.box[3] > b.box[1]);
 
 const detectorSchema = z.object({
   fps: z.coerce.number().optional(),
   duration: z.coerce.number().optional(),
   frame_width: z.coerce.number().optional(),
   frame_height: z.coerce.number().optional(),
+  annotated_video_path: z.string().optional(),
   events: z.array(z.unknown()).default([]),
 });
+
+function normalizeBoxes(raw = []) {
+  const boxes = [];
+  for (const b of raw.slice(0, 5000)) {
+    const parsed = boxSchema.safeParse(b);
+    if (parsed.success) boxes.push(parsed.data);
+  }
+  return boxes.sort((a, b) => a.t - b.t);
+}
 
 /**
  * Accepts the detector's response (or the bare events.json array from detect.py),
@@ -119,6 +141,7 @@ export function normalizeDetectorResponse(data, durationSec) {
       shelfSeconds: c.data.shelf_seconds,
       visitedTill: c.data.visited_till ?? false,
       rule: c.data.rule || 'shelf -> no till -> exit',
+      boxes: normalizeBoxes(c.data.boxes),
     });
   });
 
@@ -126,6 +149,7 @@ export function normalizeDetectorResponse(data, durationSec) {
     fps: top.data.fps,
     frameWidth: top.data.frame_width,
     frameHeight: top.data.frame_height,
+    annotatedVideoPath: top.data.annotated_video_path,
     candidates,
     warnings,
   };

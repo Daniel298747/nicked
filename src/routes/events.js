@@ -40,6 +40,27 @@ router.get('/', async (req, res) => {
   res.json({ events: events.map((e) => e.toPublic()) });
 });
 
+function sendEvidence(res, event, file) {
+  if (!event.ai?.evidenceKey || !file) throw new AppError('No image for this event.', 404, 'NOT_FOUND');
+  const full = path.join(config.uploadDir, 'evidence', event.ai.evidenceKey, path.basename(file));
+  res.type('jpeg').sendFile(full, (err) => {
+    if (err && !res.headersSent) res.status(404).json({ error: 'Image file is missing.', code: 'NOT_FOUND' });
+  });
+}
+
+// GET /api/events/:id/thumbnail → the key frame for the queue card (use as <img src>)
+router.get('/:id/thumbnail', async (req, res) => {
+  const event = await findEvent(req);
+  sendEvidence(res, event, event.ai?.thumbnail);
+});
+
+// GET /api/events/:id/evidence/:index → a frame the AI cited (see event.ai.evidence[i].label for its time)
+router.get('/:id/evidence/:index', async (req, res) => {
+  const event = await findEvent(req);
+  const item = event.ai?.evidence?.[Number(req.params.index)];
+  sendEvidence(res, event, item?.file);
+});
+
 // GET /api/events/:id
 router.get('/:id', async (req, res) => {
   const event = await findEvent(req);

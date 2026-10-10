@@ -158,3 +158,61 @@ test('incident facts come from data, report has the checklist and disclaimer', (
   assert.match(md, /\| Did they conceal it \(pocket, bag, under clothing\)\? \| Yes \|/);
   assert.match(md, /does not identify any person/);
 });
+
+// ---------- Close-up helpers ----------
+import { pickFocus, closeLookWindow, shouldLookCloser } from '../src/services/verify.js';
+import { cropRect, boxAt } from '../src/services/crop.js';
+
+const cand = { startSec: 10, endSec: 40, shelfSeconds: 6 };
+const opts = { closeLook: true, trustNoAbove: 0.7, closeLookSeconds: 5, closeLookFps: 3 };
+
+test('shouldLookCloser: trusts confident "no", looks closer at yes/unclear/weak no', () => {
+  assert.equal(shouldLookCloser({ verdict: 'no', confidence: 0.9, framesSent: 16 }, cand, opts), false);
+  assert.equal(shouldLookCloser({ verdict: 'no', confidence: 0.5, framesSent: 16 }, cand, opts), true);
+  assert.equal(shouldLookCloser({ verdict: 'yes', confidence: 0.9, framesSent: 16 }, cand, opts), true);
+  assert.equal(shouldLookCloser({ verdict: 'unclear', confidence: 0.3, framesSent: 16 }, cand, opts), true);
+  assert.equal(shouldLookCloser({ verdict: 'error', framesSent: 16 }, cand, opts), false);
+  assert.equal(shouldLookCloser({ verdict: 'yes', confidence: 0.9, framesSent: 16 }, cand, { ...opts, closeLook: false }), false);
+  // a 4 s window already sent at ≥3 fps gains nothing from a close-up, unless there are boxes to crop to
+  const short = { startSec: 0, endSec: 4 };
+  assert.equal(shouldLookCloser({ verdict: 'unclear', confidence: 0.4, framesSent: 16 }, short, opts), false);
+  assert.equal(shouldLookCloser({ verdict: 'unclear', confidence: 0.4, framesSent: 16 }, { ...short, boxes: [{ t: 1, box: [0, 0, 1, 1] }] }, opts), true);
+});
+
+test('pickFocus: cited frames first, then the middle of the shelf visit', () => {
+  assert.equal(pickFocus({ framesReferenced: ['00:31.0', '00:25.0', '00:28.0'] }, cand, 3), 28);
+  assert.equal(pickFocus({ framesReferenced: [] }, cand, 3), 10 + 3 + 3);
+  assert.equal(pickFocus({ framesReferenced: [] }, { startSec: 10, endSec: 40 }, 3), 25);
+  assert.equal(pickFocus({ framesReferenced: ['09:00.0'] }, cand, 3), 40); // clamped
+});
+
+test('closeLookWindow stays inside the candidate', () => {
+  assert.deepEqual(closeLookWindow(28, cand, 5), { start: 25.5, end: 30.5 });
+  assert.deepEqual(closeLookWindow(11, cand, 5), { start: 10, end: 15 });
+  assert.deepEqual(closeLookWindow(39.5, cand, 5), { start: 35, end: 40 });
+  assert.deepEqual(closeLookWindow(12, { startSec: 10, endSec: 13 }, 5), { start: 10, end: 13 });
+});
+
+test('cropRect pads the person box and clamps to the frame', () => {
+  assert.deepEqual(cropRect([200, 100, 400, 500], 1280, 720), { left: 130, top: 0, width: 340, height: 680 });
+  const edge = cropRect([1200, 600, 1280, 720], 1280, 720);
+  assert.ok(edge.left + edge.width <= 1280 && edge.top + edge.height <= 720);
+  assert.ok(edge.width >= 224 && edge.height >= 224); // minimum size
+  assert.equal(cropRect([2000, 2000, 2100, 2100], 1280, 720), null);
+  assert.deepEqual(cropRect([100, 50, 200, 250], 1280, 720, { scale: 2 }).width, 340); // detector ran at half resolution
+});
+
+test('boxAt picks the nearest box within a second', () => {
+  const boxes = [{ t: 1, box: [1, 1, 2, 2] }, { t: 5, box: [5, 5, 6, 6] }];
+  assert.deepEqual(boxAt(boxes, 4.6), [5, 5, 6, 6]);
+  assert.equal(boxAt(boxes, 3), null);
+});
+
+test('detector boxes and annotated video path are normalised', () => {
+  const r = normalizeDetectorResponse({
+    annotated_video_path: '/tmp/out_annotated.mp4',
+    events: [{ track_id: 4, start_time: 1, end_time: 9, boxes: [{ t: 2, xyxy: [10, 10, 50, 90] }, { t: 1, box: [0, 0, 40, 80] }, { t: 3, box: [50, 50, 10, 10] }, 'junk'] }],
+  }, 10);
+  assert.equal(r.annotatedVideoPath, '/tmp/out_annotated.mp4');
+  assert.deepEqual(r.candidates[0].boxes, [{ t: 1, box: [0, 0, 40, 80] }, { t: 2, box: [10, 10, 50, 90] }]);
+});

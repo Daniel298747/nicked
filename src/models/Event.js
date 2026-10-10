@@ -28,6 +28,7 @@ const eventSchema = new mongoose.Schema(
       shelfSeconds: Number,
       visitedTill: Boolean,
       rule: String,
+      boxCount: Number, // person boxes the detector sent (used for close-up crops)
     },
 
     // 2. What the OpenRouter vision check said
@@ -41,6 +42,26 @@ const eventSchema = new mongoose.Schema(
       latencyMs: Number,
       framesSent: Number,
       error: String,
+      closeLook: Boolean, // a close-up second pass ran
+      cropped: Boolean, // the deciding frames were cropped around the tracked person
+      passes: [
+        {
+          _id: false,
+          kind: { type: String, enum: ['overview', 'close_look'] },
+          verdict: String,
+          confidence: Number,
+          reason: String,
+          model: String,
+          framesSent: Number,
+          window: { startTime: String, endTime: String },
+          cropped: Boolean,
+          error: String,
+        },
+      ],
+      // Frames the model cited, saved under uploads/evidence/<evidenceKey>/
+      evidenceKey: String,
+      evidence: [{ _id: false, label: String, file: String, cropped: Boolean }],
+      thumbnail: String,
     },
     eventType: { type: String, enum: EVENT_TYPES },
     inQueue: { type: Boolean, default: true, index: true },
@@ -69,6 +90,14 @@ eventSchema.methods.toPublic = function toPublic() {
     o.clip = { id: String(o.clip._id), originalName: o.clip.originalName, durationSec: o.clip.durationSec };
   } else {
     o.clip = String(o.clip);
+  }
+  // Ready-to-use image URLs for the review screen
+  if (o.ai) {
+    o.ai.thumbnailUrl = o.ai.thumbnail ? `/api/events/${o.id}/thumbnail` : null;
+    o.ai.evidence = (o.ai.evidence || []).map((e, i) => ({ label: e.label, cropped: e.cropped, url: `/api/events/${o.id}/evidence/${i}` }));
+    o.ai.verdictChangedByCloseLook = Boolean(o.ai.passes?.length > 1 && o.ai.passes[0].verdict !== o.ai.verdict);
+    delete o.ai.evidenceKey;
+    delete o.ai.thumbnail;
   }
   return o;
 };

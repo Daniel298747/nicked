@@ -8,7 +8,7 @@ import { config } from '../config.js';
 import { loadShop, requireActive } from '../middleware/shop.js';
 import { Clip } from '../models/Clip.js';
 import { Event } from '../models/Event.js';
-import { Incident } from '../models/Incident.js';
+import { deleteClip } from '../jobs/retention.js';
 import { probeVideo } from '../services/ffmpeg.js';
 import { resolveZones } from '../services/detector.js';
 import { processClip } from '../jobs/processClip.js';
@@ -45,8 +45,9 @@ async function findClip(req) {
   return clip;
 }
 
-function startProcessing(clipId, model) {
-  processClip(clipId, { model }).catch((err) => console.error('[processClip]', err));
+function startProcessing(clipId, body = {}) {
+  processClip(clipId, { model: body.model || undefined, zoomModel: body.zoomModel || undefined })
+    .catch((err) => console.error('[processClip]', err));
 }
 
 // POST /api/clips  multipart: clip=<video>, zones=<optional JSON>, model=<optional OpenRouter model id>
@@ -68,7 +69,7 @@ router.post('/', requireActive, upload.single('clip'), async (req, res) => {
       height: meta.height,
       zones,
     });
-    startProcessing(clip.id, req.body?.model || undefined);
+    startProcessing(clip.id, req.body);
     res.status(202).json({ clip: clip.toPublic() });
   } catch (err) {
     await rm(req.file.path, { force: true });
@@ -98,8 +99,18 @@ router.post('/:id/reprocess', requireActive, async (req, res) => {
   clip.status = 'queued';
   clip.stage = 'queued';
   await clip.save();
-  startProcessing(clip.id, req.body?.model || undefined);
+  startProcessing(clip.id, req.body);
   res.status(202).json({ clip: clip.toPublic() });
+});
+
+// GET /api/clips/:id/annotated → the detector's rendered video (boxes, track IDs, zones), if it sent one
+router.get('/:id/annotated', async (req, res) => {
+  const clip = await findClip(req);
+  const file = clip.detector?.annotatedPath;
+  if (!file) throw new AppError('No annotated video for this clip.', 404, 'NOT_FOUND');
+  res.sendFile(path.resolve(file), (err) => {
+    if (err && !res.headersSent) res.status(404).json({ error: 'Annotated video file is missing.', code: 'NOT_FOUND' });
+  });
 });
 
 // GET /api/clips/:id/video → streams the original (supports seeking). Use as <video src>.
@@ -110,16 +121,11 @@ router.get('/:id/video', async (req, res) => {
   });
 });
 
-// DELETE /api/clips/:id → deletes the footage and its events (retention / GDPR)
+// DELETE /api/clips/:id → deletes the footage, evidence frames, events and reports (retention / GDPR)
 router.delete('/:id', async (req, res) => {
   const clip = await findClip(req);
   if (clip.status === 'processing') throw new AppError('Wait for processing to finish before deleting.', 409, 'BUSY');
-  const incidents = await Incident.find({ clip: clip._id });
-  await Promise.all(incidents.filter((i) => i.clipExportPath).map((i) => rm(i.clipExportPath, { force: true })));
-  await Incident.deleteMany({ clip: clip._id });
-  await Event.deleteMany({ clip: clip._id });
-  await rm(clip.storedPath, { force: true });
-  await clip.deleteOne();
+  await deleteClip(clip);
   res.json({ deleted: true });
 });
 

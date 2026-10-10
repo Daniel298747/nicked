@@ -78,11 +78,9 @@ export async function sampleFrames(file, outDir, { fps, width, startSec = 0, dur
   await mkdir(outDir, { recursive: true });
   const args = ['-v', 'error', '-ss', Math.max(0, startSec).toFixed(3), '-i', file];
   if (durationSec) args.push('-t', durationSec.toFixed(3));
-  args.push(
-    '-vf', `fps=${fps},scale='min(${width},iw)':-2`,
-    '-q:v', '4',
-    path.join(outDir, 'frame_%05d.jpg'),
-  );
+  // width null = keep full resolution (used before cropping around a person)
+  const filter = width ? `fps=${fps},scale='min(${width},iw)':-2` : `fps=${fps}`;
+  args.push('-vf', filter, '-q:v', width ? '4' : '2', path.join(outDir, 'frame_%05d.jpg'));
   await run('ffmpeg', args);
 
   const names = (await readdir(outDir)).filter((f) => f.endsWith('.jpg')).sort();
@@ -121,6 +119,27 @@ export async function cutClip(file, startSec, endSec, outPath) {
     '-c:v', 'libx264',
     '-preset', 'veryfast',
     '-crf', '26',
+    '-pix_fmt', 'yuv420p',
+    '-movflags', '+faststart',
+    outPath,
+  ]);
+  return outPath;
+}
+
+/**
+ * Re-encodes a video as H.264 so browsers can play it. OpenCV/supervision write
+ * "mp4v" by default, which Chrome and Safari won't play in a <video> tag.
+ */
+export async function transcodeForWeb(input, outPath) {
+  await mkdir(path.dirname(outPath), { recursive: true });
+  await run('ffmpeg', [
+    '-v', 'error',
+    '-y',
+    '-i', input,
+    '-an',
+    '-c:v', 'libx264',
+    '-preset', 'veryfast',
+    '-crf', '23',
     '-pix_fmt', 'yuv420p',
     '-movflags', '+faststart',
     outPath,

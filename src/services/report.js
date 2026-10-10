@@ -41,6 +41,8 @@ export function buildFacts({ shop, clip, event, reference, now = new Date() }) {
       observation: event.ai?.reason,
       framesCited: event.ai?.framesReferenced || [],
       model: event.ai?.model,
+      closeLook: Boolean(event.ai?.closeLook),
+      croppedToPerson: Boolean(event.ai?.cropped),
     },
     ownerReview: {
       decision: event.status,
@@ -114,7 +116,7 @@ export function assembleMarkdown(facts, narrative) {
     '## How this was flagged',
     '',
     `- **Tracker rule:** ${facts.tracker.rule || 'n/a'}${facts.tracker.secondsAtShelf != null ? ` (about ${facts.tracker.secondsAtShelf}s at the shelf, no till visit)` : ''}`,
-    `- **AI check (${facts.aiCheck.model || 'n/a'}):** ${facts.aiCheck.verdict || 'n/a'}${facts.aiCheck.confidence != null ? `, confidence ${facts.aiCheck.confidence}` : ''}`,
+    `- **AI check (${facts.aiCheck.model || 'n/a'}):** ${facts.aiCheck.verdict || 'n/a'}${facts.aiCheck.confidence != null ? `, confidence ${facts.aiCheck.confidence}` : ''}${facts.aiCheck.closeLook ? ` (overview, then a close-up${facts.aiCheck.croppedToPerson ? ' cropped to the person' : ''})` : ''}`,
     facts.aiCheck.framesCited.length ? `- **Frames cited:** ${facts.aiCheck.framesCited.join(', ')}` : '',
     '',
     '---',

@@ -203,3 +203,58 @@ test('unknown route → JSON 404', async () => {
   assert.equal(res.status, 404);
   assert.equal((await res.json()).code, 'NOT_FOUND');
 });
+
+
+test('evidence: thumbnail and cited frames are served as images, with URLs in the event JSON', async () => {
+  const { mkdirSync, copyFileSync } = await import('node:fs');
+  const key = 'clip1/40-4-1';
+  const dir = path.join(process.env.UPLOAD_DIR, 'evidence', key);
+  mkdirSync(dir, { recursive: true });
+  const jpg = path.join(tmp, 'f.jpg');
+  execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=size=320x180', '-frames:v', '1', jpg]);
+  copyFileSync(jpg, path.join(dir, 'close_look-00-45-5.jpg'));
+
+  const doc = new M.Event({
+    shop: shop._id, clip: '64b0000000000000000000c1', startSec: 4, endSec: 37,
+    ai: { verdict: 'yes', confidence: 0.86, evidenceKey: key, thumbnail: 'close_look-00-45-5.jpg',
+      evidence: [{ label: '00:45.5', file: 'close_look-00-45-5.jpg', cropped: true }],
+      passes: [{ kind: 'overview', verdict: 'unclear' }, { kind: 'close_look', verdict: 'yes' }] },
+  });
+  const findOne = mock.method(M.Event, 'findOne', async () => doc);
+
+  const pub = doc.toPublic();
+  assert.equal(pub.ai.thumbnailUrl, `/api/events/${pub.id}/thumbnail`);
+  assert.deepEqual(pub.ai.evidence, [{ label: '00:45.5', cropped: true, url: `/api/events/${pub.id}/evidence/0` }]);
+  assert.equal(pub.ai.verdictChangedByCloseLook, true);
+  assert.equal(pub.ai.evidenceKey, undefined); // internal paths never leave the server
+
+  let res = await fetch(`${base}${pub.ai.thumbnailUrl}`);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-type'), /image\/jpeg/);
+  res = await fetch(`${base}${pub.ai.evidence[0].url}`);
+  assert.equal(res.status, 200);
+  res = await fetch(`${base}/api/events/${pub.id}/evidence/5`);
+  assert.equal(res.status, 404);
+  findOne.mock.restore();
+});
+
+test('retention: old footage is deleted unless it backs an incident report', async () => {
+  const { runRetention } = await import('../src/jobs/retention.js');
+  const deleted = [];
+  const mk = (id) => ({ _id: id, storedPath: path.join(tmp, `${id}.mp4`), deleteOne: async () => deleted.push(id) });
+  const stubs = [
+    mock.method(M.Clip, 'find', async (q) => {
+      assert.ok(q.createdAt.$lt instanceof Date);
+      return [mk('old-with-report'), mk('old-plain')];
+    }),
+    mock.method(M.Incident, 'exists', async ({ clip }) => (clip === 'old-with-report' ? { _id: 'i1' } : null)),
+    mock.method(M.Incident, 'find', async () => []),
+    mock.method(M.Incident, 'deleteMany', async () => ({})),
+    mock.method(M.Event, 'deleteMany', async () => ({})),
+  ];
+  const r = await runRetention({ days: 30 });
+  assert.deepEqual(r, { deleted: 1, keptForIncidents: 1 });
+  assert.deepEqual(deleted, ['old-plain']);
+  assert.deepEqual(await runRetention({ days: 0 }), { deleted: 0, keptForIncidents: 0 });
+  stubs.forEach((s) => s.mock.restore());
+});

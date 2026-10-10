@@ -27,6 +27,8 @@ export function createApp() {
       detector: config.detector.url ? `http (${config.detector.url})` : 'mock',
       openrouter: Boolean(config.openrouter.apiKey),
       model: config.openrouter.detectModel,
+      closeLookModel: config.verify.closeLook ? config.openrouter.zoomModel : null,
+      retentionDays: config.retentionDays,
       stripe: Boolean(config.stripe.secretKey),
       paywallBypassed: config.devBypassPaywall,
     });

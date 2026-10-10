@@ -40,6 +40,65 @@ Zones are pixel polygons in the original video's resolution.
 - The backend clamps times to the video length and skips malformed events, but please clamp `end_time` too.
 - A bare array (what `detect.py` writes to `events.json`) is also accepted.
 
+## Optional extras (these make the demo much better)
+
+### 1. Person boxes → close-ups cropped to the person
+
+Add `boxes` to each event: where the tracked person was, every ~0.2–0.5 s, in original-video pixels.
+The backend crops its close-up frames around the person so the AI can actually see their hands.
+
+```json
+{ "track_id": 4, "start_time": 39.0, "end_time": 72.0, "shelf_seconds": 6.4, "visited_till": false,
+  "rule": "shelf -> no till -> exit",
+  "boxes": [ { "t": 39.2, "box": [612, 140, 790, 560] }, { "t": 39.4, "box": [615, 141, 792, 561] } ] }
+```
+
+In `detect.py`, inside the `for i, tid in enumerate(det.tracker_id):` loop:
+
+```python
+if frame_idx % 5 == 0:  # ~5 boxes per second at 25 fps
+    p.setdefault("boxes", []).append({"t": round(t, 2), "box": [round(float(v), 1) for v in det.xyxy[i]]})
+```
+
+and when you append the event:
+
+```python
+start, end = round(max(0, p["first_shelf"] - PAD_BEFORE), 2), round(t + PAD_AFTER, 2)
+events.append({ ..., "start_time": start, "end_time": end,
+                "boxes": [b for b in p.get("boxes", []) if start <= b["t"] <= end] })
+```
+
+### 2. Annotated video → the "wow" shot in the demo
+
+Render the video with boxes, track IDs and the three zones drawn on, and return its path as
+`annotated_video_path` (top level of the response). The backend re-encodes it to H.264 so it plays
+in the browser (OpenCV's default `mp4v` doesn't), and serves it at `GET /api/clips/:id/annotated`.
+
+```python
+box_annotator = sv.BoxAnnotator()
+label_annotator = sv.LabelAnnotator()
+zone_annotators = [sv.PolygonZoneAnnotator(zone=z, color=c) for z, c in zip(zones.values(), [sv.Color.BLUE, sv.Color.GREEN, sv.Color.RED])]
+info = sv.VideoInfo.from_video_path(VIDEO)
+
+with sv.VideoSink(OUT_PATH, info) as sink:
+    for frame_idx, result in enumerate(model.track(source=VIDEO, stream=True, persist=True, classes=[0], verbose=False)):
+        frame = result.orig_img.copy()
+        det = sv.Detections.from_ultralytics(result)
+        # ... existing zone logic ...
+        if det.tracker_id is not None and len(det):
+            labels = [f"#{int(tid)}" + (" CHECK" if people.get(int(tid), {}).get("flagged") else "") for tid in det.tracker_id]
+            frame = box_annotator.annotate(frame, det)
+            frame = label_annotator.annotate(frame, det, labels)
+        for za in zone_annotators:
+            frame = za.annotate(frame)
+        sink.write_frame(frame)   # write EVERY frame, even ones with no people
+```
+
+Note: the current loop does `continue` when there are no detections. Move that check so frames are still written.
+
+**Running on a different laptop?** Send the files instead: `<video name>.json` (events, with boxes)
+and `<video name>.annotated.mp4`. They go in the backend's `mock-detections/` folder.
+
 ## Errors
 
 Any non-200 with `{ "error": "message" }` (FastAPI's `{ "detail": ... }` also works).

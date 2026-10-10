@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, access } from 'node:fs/promises';
 import path from 'node:path';
 import { config } from '../config.js';
 import { AppError } from '../utils/errors.js';
@@ -60,9 +60,13 @@ async function detectViaHttp({ videoPath, zones, durationSec }) {
 async function detectViaMock({ originalName, durationSec }) {
   const base = path.parse(originalName || '').name;
   const file = path.join(config.detector.mockDir, `${base}.json`);
+  // Optional: the teammate's rendered video with boxes and zones, saved as <video name>.annotated.mp4
+  const annotated = path.join(config.detector.mockDir, `${base}.annotated.mp4`);
+  const annotatedVideoPath = await access(annotated).then(() => annotated, () => undefined);
   try {
     const data = JSON.parse(await readFile(file, 'utf8'));
-    return { mode: 'mock-file', ...normalizeDetectorResponse(data, durationSec) };
+    const result = normalizeDetectorResponse(data, durationSec);
+    return { mode: 'mock-file', ...result, annotatedVideoPath: result.annotatedVideoPath || annotatedVideoPath };
   } catch (err) {
     if (err.code !== 'ENOENT') {
       throw new AppError(`mock-detections/${base}.json is invalid: ${err.message}`, 500, 'MOCK_INVALID');
@@ -76,7 +80,7 @@ async function detectViaMock({ originalName, durationSec }) {
     visited_till: false,
     rule: 'shelf -> no till -> exit (mock)',
   }];
-  return { mode: 'mock', ...normalizeDetectorResponse(fake, durationSec) };
+  return { mode: 'mock', ...normalizeDetectorResponse(fake, durationSec), annotatedVideoPath };
 }
 
 /** Zones for this upload: the form field if sent, otherwise zones.json. */

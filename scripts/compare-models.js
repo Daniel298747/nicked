@@ -29,7 +29,7 @@ for (const model of models) {
   for (const c of candidates) {
     let r;
     try {
-      r = await verifyCandidate({ videoPath: path.resolve(video), candidate: c, model });
+      r = await verifyCandidate({ videoPath: path.resolve(video), candidate: c, model, zoomModel: model });
     } catch (err) {
       r = { ai: { verdict: 'error', error: describeAiError(err) }, usage: { cost: 0 } };
     }
@@ -39,6 +39,8 @@ for (const model of models) {
       track: c.trackId,
       window: `${c.startTime}-${c.endTime}`,
       verdict: r.ai.verdict,
+      firstLook: r.ai.passes?.[0]?.verdict ?? '',
+      closeLook: r.ai.closeLook ? 'yes' : 'no',
       confidence: r.ai.confidence ?? '',
       correct: want ? (want === r.ai.verdict ? 'yes' : 'NO') : '',
       latencyMs: r.ai.latencyMs ?? '',
