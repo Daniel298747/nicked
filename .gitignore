@@ -1,0 +1,19 @@
+# Repo-wide safety net. Each part also has its own .gitignore.
+
+# Dependencies
+node_modules/
+venv/
+.venv/
+
+# Secrets: only the .env.example templates are committed
+.env
+.env.*
+!.env.example
+
+# Uploaded footage and generated files
+uploads/
+__pycache__/
+*.pyc
+*.log
+.DS_Store
+.vercel

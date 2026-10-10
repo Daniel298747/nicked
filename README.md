@@ -216,26 +216,75 @@ Built in and wired to a Stripe sandbox:
 
 <br />
 
-## 🚀 Run it
+## 🚀 Run it (Mac)
 
-**Just want to see it?** The frontend has a built-in preview on sample data:
+> **Demo URL:** **http://localhost:5173** once all three parts are running.
 
-```bash
-cd frontend && npm install && npm run dev      # → http://localhost:5173
-```
-
-**The full stack** (three terminals):
+**Just want to look around?** The frontend has a built-in preview on sample data, with no backend needed:
 
 ```bash
-# 1 · detector
-cd detector && pip install -r requirements.txt && uvicorn server:app --port 8000
-
-# 2 · backend (needs MongoDB, plus OpenRouter + Stripe sandbox keys in backend/.env)
-cd backend && npm install && cp .env.example .env && npm run dev    # → :4000
-
-# 3 · frontend, talking to the real backend
-cd frontend && VITE_LIVE=true npm run dev                           # → :5173
+cd frontend && npm install && npm run dev        # → http://localhost:5173
 ```
+
+### 0 · Prerequisites (once)
+
+```bash
+brew install node ffmpeg python@3.12 stripe/stripe-cli/stripe
+brew tap mongodb/brew && brew install mongodb-community && brew services start mongodb-community
+# If Homebrew says a formula is from an "untrusted tap": brew trust --formula <name it shows>, then re-run
+```
+
+### 1 · Detector: Python, port 8000
+
+```bash
+cd detector
+python3 -m venv .venv && source .venv/bin/activate
+pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision   # CPU build, much smaller
+pip install -r requirements.txt
+python pick_zones.py <your-clip.mp4> ../backend/zones.json   # click shelf, till, exit (once per camera)
+uvicorn server:app --port 8000                               # → http://localhost:8000/health
+```
+
+### 2 · Backend: Node, port 4000
+
+```bash
+cd backend
+npm install
+cp .env.example .env
+```
+
+Fill in `backend/.env`:
+
+```bash
+OPENROUTER_API_KEY=sk-or-...           # openrouter.ai/keys
+STRIPE_SECRET_KEY=sk_test_...          # Stripe dashboard → Developers → API keys (sandbox only)
+DETECTOR_URL=http://localhost:8000     # leave empty to use the built-in mock detector
+```
+
+```bash
+npm run stripe:seed     # once: creates the products and prices in your Stripe sandbox
+npm test                # 60 tests, no network needed
+npm run dev             # → http://localhost:4000/api/health
+```
+
+In a **second terminal**, forward Stripe webhooks, then copy the `whsec_…` it prints into `STRIPE_WEBHOOK_SECRET` in `backend/.env` and restart the backend:
+
+```bash
+stripe login
+stripe listen \
+  --events checkout.session.completed,checkout.session.async_payment_succeeded,invoice.paid,invoice.payment_succeeded,invoice.payment_failed,customer.subscription.created,customer.subscription.updated,customer.subscription.deleted \
+  --forward-to localhost:4000/api/billing/webhook
+```
+
+### 3 · Frontend: React, port 5173
+
+```bash
+cd frontend
+npm install
+VITE_LIVE=true npm run dev     # → http://localhost:5173 (Vite proxies /api to :4000)
+```
+
+Open **http://localhost:5173**, subscribe with Stripe's test card `4242 4242 4242 4242` (any future date, any CVC), and upload a clip.
 
 | Guide | |
 |---|---|
@@ -290,10 +339,31 @@ nicked/
 
 Nicked was designed and built in a weekend at **HackUCD 2026**, University College Dublin, October 2026.
 
-| | Built |
-|---|---|
-| **Brian Odeyale** · [@brianodeyale64](https://github.com/brianodeyale64) | Backend: clip pipeline, two-pass AI verification, incident reports, Stripe billing and pricing engine |
-| **Cormac Kildea** · [@cormackildea](https://github.com/cormackildea) | Frontend, YOLO detector service, Vercel and container deployment |
+### Team & contributions
+
+| | Area | What they built |
+|---|---|---|
+| **Brian Odeyale** · [@brianodeyale64](https://github.com/brianodeyale64) | Backend: Node API | Express + MongoDB API: clip upload, ffmpeg frame sampling, two-pass OpenRouter verification, detector client, review queue, confirm / dismiss, Garda incident reports, Stripe billing and per-camera pricing, the backend test suite |
+| **Cormac Kildea** · [@cormackildea](https://github.com/cormackildea) | Backend: Python detector | YOLO26 + ByteTrack + Supervision detector service (FastAPI, `POST /detect` on :8000), zone picker, Vercel / Docker / Render deployment, serverless and brand pieces of the API |
+| **Daniel Omotayo** · [@Daniel298747](https://github.com/Daniel298747) | Frontend | React + TypeScript + Vite app: landing page, pricing, dashboard, review queue, flag review, incident reports |
+
+<details>
+<summary>How this was verified against the git history</summary>
+<br />
+
+Lines still in the code today (`git blame`), by folder:
+
+| Path | Lines by author | Commits |
+|---|---|---|
+| `backend/src` | Brian 3,353 · Cormac 281 | Brian · Cormac (deploy, brand, serverless) |
+| `backend/test` · `backend/scripts` | Brian 1,231 · Cormac 59 | Brian · Cormac (`brand.test.js`) |
+| `detector/` | Cormac 649 | Cormac |
+| `frontend/` | 6,205 | Committed by Cormac in PR #2; written by Daniel |
+| `api/` · `deploy/` · `Dockerfile` · `render.yaml` · `vercel.json` · `docs/DEPLOY.md` | Cormac | Cormac |
+
+Daniel's frontend reached the repository through Cormac's pull request, so git attributes those commits to Cormac. The history has been left as it is.
+
+</details>
 
 <br />
 
