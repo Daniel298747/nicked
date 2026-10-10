@@ -1,0 +1,30 @@
+{
+  "name": "hackucd-backend",
+  "version": "0.1.0",
+  "description": "Backend for the HackUCD 2026 shop CCTV review tool: clip upload, OpenRouter detection, human review, incident reports, Stripe subscription.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node --test \"test/**/*.test.js\"",
+    "stripe:seed": "node scripts/seed-stripe.js",
+    "models:list": "node scripts/list-vision-models.js",
+    "models:compare": "node scripts/compare-models.js"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.7",
+    "express": "^5.3.0",
+    "mongoose": "^9.11.1",
+    "multer": "^2.4.0",
+    "openai": "^7.32.0",
+    "stripe": "^23.0.0",
+    "zod": "^4.6.5"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "private": true
+}

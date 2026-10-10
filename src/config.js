@@ -1,0 +1,74 @@
+import path from 'node:path';
+import dotenv from 'dotenv';
+
+dotenv.config({ quiet: true });
+
+const num = (value, fallback) => {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+};
+
+const detectModel = process.env.DETECT_MODEL || 'anthropic/claude-haiku-5.5';
+
+export const config = {
+  port: num(process.env.PORT, 4000),
+  appName: process.env.APP_NAME || 'Nicked',
+  demoShopName: process.env.DEMO_SHOP_NAME || 'Demo Corner Shop',
+  mongoUri: process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/hackucd',
+  // Comma-separated frontend origins for CORS. The first one is used for Stripe redirects.
+  clientUrls: (process.env.CLIENT_URL || 'http://localhost:5173')
+    .split(',')
+    .map((s) => s.trim().replace(/\/$/, ''))
+    .filter(Boolean),
+  uploadDir: path.resolve(process.env.UPLOAD_DIR || 'uploads'),
+  maxUploadMb: num(process.env.MAX_UPLOAD_MB, 300),
+  zonesFile: path.resolve(process.env.ZONES_FILE || 'zones.json'),
+  // Lets you build the UI before Stripe works. Never turn this on for the demo.
+  devBypassPaywall: process.env.DEV_BYPASS_PAYWALL === 'true',
+
+  detector: {
+    // Your teammate's Python YOLO service. Leave empty to use the built-in mock detector.
+    url: (process.env.DETECTOR_URL || '').replace(/\/$/, ''),
+    timeoutMs: num(process.env.DETECTOR_TIMEOUT_MS, 10 * 60_000),
+    minShelfSeconds: num(process.env.MIN_SHELF_SECONDS, 2),
+    mockDir: path.resolve(process.env.MOCK_DETECTIONS_DIR || 'mock-detections'),
+  },
+
+  openrouter: {
+    apiKey: process.env.OPENROUTER_API_KEY || '',
+    baseURL: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
+    detectModel,
+    reportModel: process.env.REPORT_MODEL || detectModel,
+    timeoutMs: num(process.env.OPENROUTER_TIMEOUT_MS, 60_000),
+  },
+
+  verify: {
+    fps: num(process.env.SAMPLE_FPS, 2),
+    // A 33 s candidate at 2 fps would be 66 images. We lower the frame rate so each check sends at most this many.
+    maxFrames: num(process.env.MAX_FRAMES_PER_EVENT, 16),
+    frameWidth: num(process.env.FRAME_WIDTH, 640),
+    concurrency: num(process.env.VERIFY_CONCURRENCY, 3),
+    // Average luma (0–255) below this adds a "footage is very dark" warning.
+    darkThreshold: num(process.env.DARK_THRESHOLD, 45),
+  },
+
+  stripe: {
+    secretKey: process.env.STRIPE_SECRET_KEY || '',
+    webhookSecret: process.env.STRIPE_WEBHOOK_SECRET || '',
+    priceId: process.env.STRIPE_PRICE_ID || '',
+    priceLookupKey: process.env.STRIPE_PRICE_LOOKUP_KEY || 'shop_monthly',
+  },
+};
+
+config.clientUrl = config.clientUrls[0];
+
+export function configWarnings() {
+  const w = [];
+  if (!config.openrouter.apiKey) w.push('OPENROUTER_API_KEY is not set: AI checks will fail (candidates still reach the queue, marked "AI check failed").');
+  if (!config.detector.url) w.push('DETECTOR_URL is not set: using the mock detector.');
+  if (!config.stripe.secretKey) w.push('STRIPE_SECRET_KEY is not set: checkout will fail.');
+  if (/^(sk|rk)_live_/.test(config.stripe.secretKey)) w.push('STRIPE_SECRET_KEY is a LIVE key. Sandbox only: Stripe calls are blocked.');
+  if (!config.stripe.webhookSecret) w.push('STRIPE_WEBHOOK_SECRET is not set: run `stripe listen --forward-to localhost:4000/api/billing/webhook` and paste the whsec_ value.');
+  if (config.devBypassPaywall) w.push('DEV_BYPASS_PAYWALL is on: the paywall is disabled. Turn it off before the demo.');
+  return w;
+}
