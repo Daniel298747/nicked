@@ -24,8 +24,18 @@ export class ApiError extends Error {
   }
 }
 
-/** Absolute URL for a backend path like /api/clips/:id/video (for <video>, <img>, downloads). */
+/**
+ * The worker that takes uploads and holds the footage (Dockerfile: API + YOLO + ffmpeg).
+ * On Vercel the API runs as a function that can't take video, so set VITE_WORKER_URL.
+ * Empty = the API host does it all (local dev, or the whole backend on one server).
+ */
+export const WORKER_BASE = (import.meta.env.VITE_WORKER_URL ?? '').replace(/\/$/, '') || API_BASE;
+
+/** Absolute URL for an API path. */
 export const apiUrl = (path: string | null | undefined) => (path ? `${API_BASE}${path}` : null);
+
+/** Absolute URL for footage and frames (video, thumbnails, evidence, clip exports): they live on the worker. */
+export const mediaUrl = (path: string | null | undefined) => (path ? `${WORKER_BASE}${path}` : null);
 
 async function parse(res: Response) {
   const body = await res.json().catch(() => null);
@@ -65,7 +75,7 @@ export function uploadClip(
     for (const [k, v] of Object.entries(fields)) form.append(k, v);
     form.append('clip', file);
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', `${API_BASE}/api/clips`);
+    xhr.open('POST', `${WORKER_BASE}/api/clips`);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
     };

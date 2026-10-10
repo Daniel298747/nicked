@@ -1,6 +1,6 @@
-import sharp from 'sharp';
+import { loadSharp } from './sharp.js';
 
-const thumb = (file) => sharp(file).resize(64, 36, { fit: 'fill' }).grayscale().raw().toBuffer();
+const thumb = async (file) => (await loadSharp())(file).resize(64, 36, { fit: 'fill' }).grayscale().raw().toBuffer();
 
 /** Share of thumbnail pixels whose brightness changed by more than `pixelDelta`. */
 export function changedShare(a, b, pixelDelta = 10) {

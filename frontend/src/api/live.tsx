@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Checklist, EventStatus, Plan } from '../data/types';
 import type { Demo, UploadInput } from '../demo/store';
 
-import { api, apiUrl, uploadClip } from './client';
+import { api, mediaUrl, uploadClip } from './client';
 import { fromChecklist, toCamera, toClip, toEvent, toPlan, toReport, toShop, toSubscription } from './map';
 
 // The real backend behind the same interface as the demo store, so every
@@ -117,7 +117,7 @@ export function useLiveState(): Demo {
         .map((e) => {
           const ev = toEvent(e, reportByEvent.get(e.id));
           const annotated = annotatedByClip.get(ev.clipId);
-          if (ev.media && annotated) ev.media.annotatedUrl = apiUrl(annotated);
+          if (ev.media && annotated) ev.media.annotatedUrl = mediaUrl(annotated);
           return ev;
         }),
     [data.events, reportByEvent, annotatedByClip],

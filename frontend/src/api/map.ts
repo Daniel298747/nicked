@@ -13,7 +13,7 @@ import type {
   Shop,
   SubscriptionStatus,
 } from '../data/types';
-import { apiUrl } from './client';
+import { apiUrl, mediaUrl } from './client';
 
 // Backend shapes → the shapes the screens render. Backend docs: backend/README.md.
 
@@ -112,7 +112,7 @@ export function toClip(b: any, eventIds: string[]): Clip {
     eventIds,
     isFreeScan: Boolean(b.freeScan),
     error: b.error ? { code: 'analysis_failed', message: b.error } : undefined,
-    videoUrl: apiUrl(b.videoUrl) ?? undefined,
+    videoUrl: mediaUrl(b.videoUrl) ?? undefined,
     warnings: b.warnings ?? [],
   };
 }
@@ -206,10 +206,10 @@ export function toEvent(b: any, reportId?: string): FlagEvent {
     decidedAt: b.reviewedAt ?? undefined,
     reportId,
     media: {
-      videoUrl: apiUrl(`/api/clips/${clip.id}/video`)!,
+      videoUrl: mediaUrl(`/api/clips/${clip.id}/video`)!,
       annotatedUrl: null, // filled from the clip list
-      thumbnailUrl: apiUrl(b.ai?.thumbnailUrl),
-      evidence: (b.ai?.evidence ?? []).map((e: any) => ({ at: parseTime(e.label), label: e.label, url: apiUrl(e.url)! })),
+      thumbnailUrl: mediaUrl(b.ai?.thumbnailUrl),
+      evidence: (b.ai?.evidence ?? []).map((e: any) => ({ at: parseTime(e.label), label: e.label, url: mediaUrl(e.url)! })),
       passes: (b.ai?.passes ?? []).map((p: any) => ({ kind: p.kind, verdict: p.verdict, confidence: p.confidence })),
       aiVerdict: verdict,
       flags: b.flags ?? [],
@@ -225,7 +225,7 @@ export function toReport(b: any): Report {
     createdAt: b.createdAt,
     narrative: b.narrative,
     markdownUrl: apiUrl(`/api/incidents/${b.id}/report.md`)!,
-    clipUrl: apiUrl(`/api/incidents/${b.id}/clip`)!,
+    clipUrl: mediaUrl(`/api/incidents/${b.id}/clip`)!,
     sharedWithGardai: Boolean(b.sharedWithGardai),
     languageWarnings: b.languageWarnings ?? [],
   };

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router';
-import { ButtonLink } from '../components/ui/Button';
+import { Link, useNavigate } from 'react-router';
+import { Lock } from 'lucide-react';
+import { Button, ButtonLink } from '../components/ui/Button';
+import { useDemo } from '../demo/store';
 import { ConfidenceMeter } from '../components/ui/Status';
 import { FeedFrame } from '../components/feed/FeedFrame';
 import { Scene } from '../components/feed/Scene';
@@ -9,7 +11,7 @@ import { actorAt, segmentAt } from '../components/feed/script';
 import { euro, clockAt, pct, timecode } from '../lib/format';
 import { quote } from '../lib/pricing';
 import { useDocumentTitle, usePrefersReducedMotion } from '../lib/hooks';
-import type { ScriptParams, Segment } from '../data/types';
+import type { Interval, Plan, ScriptParams, Segment } from '../data/types';
 
 const SCRIPT: ScriptParams = { scene: 'aisle', side: 'right', enter: 2, reach: 16, conceal: 21, exit: 34 };
 const SEGMENTS: Segment[] = [
@@ -190,31 +192,8 @@ export default function Landing() {
         </dl>
       </section>
 
-      {/* Pricing teaser */}
-      <section aria-labelledby="price-h" className="border-t border-hairline bg-section">
-        <div className="mx-auto grid max-w-6xl gap-10 px-4 py-16 sm:px-6 md:grid-cols-[1fr_1fr] md:items-end">
-          <div>
-            <p className="eyebrow text-ink-muted">Pricing</p>
-            <h2 id="price-h" className="mt-2 text-display">From €29 a camera a month.</h2>
-            <p className="mt-3 text-body-lg text-ink-muted">Cheaper per camera the more you have. Prices exclude VAT.</p>
-            <div className="mt-8 flex flex-wrap gap-3">
-              <ButtonLink to="/pricing" size="lg">Price your shop</ButtonLink>
-              <ButtonLink to="/signup?next=free-scan" size="lg" variant="secondary">Scan a clip free</ButtonLink>
-            </div>
-          </div>
-          <table className="w-full text-body">
-            <caption className="sr-only">Monthly price by number of cameras</caption>
-            <tbody>
-              {[1, 2, 4, 8].map((n) => (
-                <tr key={n}>
-                  <th scope="row" className="border-b border-hairline py-3 text-left font-normal">{n} {n === 1 ? 'camera' : 'cameras'}</th>
-                  <td className="border-b border-hairline py-3 text-right font-mono tabular">{euro(quote({ cameras: n, interval: 'month', addons: { always_on: 0, retention: false, location: 0 } }).total)} / month</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      {/* Pricing + subscribe: straight to Stripe Checkout */}
+      <SubscribeSection />
 
       {/* FAQ */}
       <section id="faq" aria-labelledby="faq-h" className="mx-auto max-w-6xl scroll-mt-6 px-4 py-16 sm:px-6">
@@ -238,5 +217,93 @@ export default function Landing() {
         </p>
       </section>
     </>
+  );
+}
+
+const CAMERA_OPTIONS = [1, 2, 4, 8];
+
+/**
+ * Pick cameras and billing period, then subscribe. POST /api/billing/checkout
+ * creates a Stripe Checkout Session and the browser goes to Stripe; the webhook
+ * unlocks the shop and /billing/success waits for it.
+ */
+function SubscribeSection() {
+  const demo = useDemo();
+  const navigate = useNavigate();
+  const [cameras, setCameras] = useState(2);
+  const [interval, setBillingInterval] = useState<Interval>('month');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const plan: Plan = { cameras, interval, addons: { always_on: 0, retention: false, location: 0 } };
+  const per = interval === 'month' ? 'month' : 'year';
+
+  const subscribe = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const how = await demo.beginCheckout(plan);
+      // Preview mode has no Stripe: go straight to the success page.
+      if (how === 'local') navigate('/billing/success?session_id=cs_test_preview');
+    } catch (err) {
+      setError((err as Error).message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section id="pricing" aria-labelledby="price-h" className="scroll-mt-6 border-t border-hairline bg-section">
+      <div className="mx-auto grid max-w-6xl gap-10 px-4 py-16 sm:px-6 md:grid-cols-[1fr_1fr] md:items-start">
+        <div>
+          <p className="eyebrow text-ink-muted">Pricing</p>
+          <h2 id="price-h" className="mt-2 text-display">From €29 a camera a month.</h2>
+          <p className="mt-3 text-body-lg text-ink-muted">Cheaper per camera the more you have. Pay yearly and get two months free. Prices exclude VAT.</p>
+          <div className="mt-8 flex flex-wrap gap-3">
+            <ButtonLink to="/pricing" size="lg" variant="secondary">Add 24/7 or longer retention</ButtonLink>
+            <ButtonLink to="/signup?next=free-scan" size="lg" variant="ghost">Scan a clip free</ButtonLink>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-hairline bg-surface p-6 sm:p-8">
+          <fieldset>
+            <legend className="text-label">Billing</legend>
+            <div className="mt-2 inline-flex rounded-full border-[1.5px] border-control p-0.5">
+              {(['month', 'year'] as const).map((i) => (
+                <label key={i} className={`focus-ring-within inline-flex h-9 cursor-pointer items-center rounded-full px-4 text-label ${interval === i ? 'bg-primary text-on-primary' : 'text-ink'}`}>
+                  <input type="radio" name="interval" className="sr-only" checked={interval === i} onChange={() => setBillingInterval(i)} />
+                  {i === 'month' ? 'Monthly' : 'Yearly'}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
+          <fieldset className="mt-6">
+            <legend className="text-label">Cameras</legend>
+            <div className="mt-2 border-t border-hairline">
+              {CAMERA_OPTIONS.map((n) => {
+                const on = cameras === n;
+                return (
+                  <label key={n} className="focus-ring-within flex cursor-pointer items-center gap-3 border-b border-hairline py-3">
+                    <input type="radio" name="cameras" className="size-4 accent-[var(--primary)]" checked={on} onChange={() => setCameras(n)} />
+                    <span className={`flex-1 text-body ${on ? 'font-semibold' : ''}`}>{n} {n === 1 ? 'camera' : 'cameras'}</span>
+                    <span className="font-mono text-caption tabular">{euro(quote({ ...plan, cameras: n }).total)} / {per}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
+
+          <p className="mt-6 flex items-baseline justify-between gap-3">
+            <span className="text-body text-ink-muted">Total</span>
+            <span><span className="text-h2 tabular">{euro(quote(plan).total)}</span> <span className="text-body text-ink-muted">/ {per}</span></span>
+          </p>
+          <Button size="lg" className="mt-4 w-full" onClick={subscribe} loading={busy}>Subscribe</Button>
+          {error && <p className="mt-3 text-caption font-semibold text-ink" role="alert">{error}</p>}
+          <p className="mt-3 flex items-center gap-1.5 text-caption text-ink-muted">
+            <Lock size={14} strokeWidth={1.75} aria-hidden="true" />
+            Secure checkout by Stripe. Test mode: card 4242 4242 4242 4242, any future date and CVC.
+          </p>
+        </div>
+      </div>
+    </section>
   );
 }
