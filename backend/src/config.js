@@ -29,7 +29,7 @@ export const config = {
   devBypassPaywall: process.env.DEV_BYPASS_PAYWALL === 'true',
 
   detector: {
-    // Your teammate's Python YOLO service. Leave empty to use the built-in mock detector.
+    // The Python YOLO service in ../detector. Leave empty to use the built-in mock detector.
     url: (process.env.DETECTOR_URL || '').replace(/\/$/, ''),
     timeoutMs: num(process.env.DETECTOR_TIMEOUT_MS, 10 * 60_000),
     minShelfSeconds: num(process.env.MIN_SHELF_SECONDS, 2),

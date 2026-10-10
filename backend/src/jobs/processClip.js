@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { rm } from 'node:fs/promises';
 import { config } from '../config.js';
+import { Camera } from '../models/Camera.js';
 import { Clip } from '../models/Clip.js';
 import { Event, QUEUE_VERDICTS } from '../models/Event.js';
 import { Shop } from '../models/Shop.js';
@@ -64,11 +65,13 @@ export async function processClip(clipId, { model = config.openrouter.detectMode
     }
 
     // 1. YOLO candidates
+    const camera = clip.camera ? await Camera.findById(clip.camera).select('name') : null;
     const detection = await detectCandidates({
       videoPath: clip.storedPath,
       originalName: clip.originalName,
       zones: clip.zones,
       durationSec: clip.durationSec,
+      cameraName: camera?.name,
     });
     warnings.push(...detection.warnings);
     if (detection.mode !== 'http') warnings.push('Demo mode: candidates came from the mock detector, not YOLO.');
@@ -168,6 +171,8 @@ export async function processClip(clipId, { model = config.openrouter.detectMode
         visitedTill: candidate.visitedTill,
         rule: candidate.rule,
         boxCount: candidate.boxes?.length || 0,
+        handToWaist: candidate.handToWaist,
+        handToWaistSec: candidate.handToWaistSec,
       },
       ai,
       eventType,

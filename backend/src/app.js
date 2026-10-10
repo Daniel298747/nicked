@@ -10,6 +10,7 @@ import statsRoutes from './routes/stats.js';
 import cameraRoutes from './routes/cameras.js';
 import billingRoutes, { stripeWebhook } from './routes/billing.js';
 import { errorHandler, notFoundHandler } from './middleware/errors.js';
+import { BRAND } from './services/brand.js';
 
 export function createApp() {
   const app = express();
@@ -35,6 +36,9 @@ export function createApp() {
       paywallBypassed: config.devBypassPaywall,
     });
   });
+
+  // Design tokens and status wording, so the frontend matches the brand guidelines.
+  app.get('/api/brand', (_req, res) => res.json(BRAND));
 
   app.use('/api/shop', shopRoutes);
   app.use('/api/billing', billingRoutes);
