@@ -1,0 +1,380 @@
+@import "tailwindcss";
+
+/* ------------------------------------------------------------------
+   Nicked tokens. Light values are the brand guidelines PDF (V1, Oct 2026).
+   Dark values are derived from the same palette: the page becomes
+   Nicked Navy (the PDF's "reversed" surface), text becomes Sections grey.
+   Every text pair is checked to at least 4.5:1 (scripts/contrast.mjs).
+   ------------------------------------------------------------------ */
+:root {
+  color-scheme: light;
+
+  --page: #ffffff;
+  --section: #f3f5f8;
+  --surface: #ffffff;
+  --ink: #0e1f35;
+  --ink-muted: #556275;
+  --hairline: #d9dee6;
+  --control: #7d8a9c;
+
+  --signal: #ff541c;        /* flags only: boxes, the flag dot, REC, focus, the camera */
+  --signal-text: #c23c0b;   /* orange as text */
+  --signal-wash: #ffede5;
+
+  --primary: #0e1f35;
+  --primary-hover: #1d3150;
+  --on-primary: #ffffff;
+
+  --nav: #0e1f35;
+  --nav-ink: #ffffff;
+  --nav-muted: #a9b4c4;
+  --nav-active: #1d3150;
+
+  /* footage is always dark, in both themes */
+  --feed: #0b1524;
+  --feed-ink: #e6ebf2;
+  --feed-muted: #8b98ab;
+  --feed-track: #1c2b45;
+  --feed-line: #2b3f63;
+  --on-signal: #0e1f35;
+
+  /* statuses: always a word + a shape, never colour alone */
+  --flagged: #c23c0b;
+  --flagged-bg: #ffede5;
+  --flagged-dot: #ff541c;
+  --unsure: #8a5300;
+  --unsure-bg: #fff3d6;
+  --confirmed: #b42318;
+  --confirmed-bg: #fdecea;
+  --cleared: #1d5fd1;
+  --cleared-bg: #e8f0fd;
+  --reported: #ffffff;
+  --reported-bg: #0e1f35;
+
+  --focus-gap: var(--page);
+  --focus-edge: #0e1f35;
+
+  --shadow-pop: 0 1px 2px rgb(14 31 53 / 0.06), 0 8px 24px rgb(14 31 53 / 0.08);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --page: #0e1f35;
+  --section: #13263f;
+  --surface: #162a44;
+  --ink: #f3f5f8;
+  --ink-muted: #a9b4c4;
+  --hairline: #2a3d58;
+  --control: #7d8a9c;
+
+  --signal: #ff541c;
+  --signal-text: #ff8a5b;
+  --signal-wash: #3a2320;
+
+  --primary: #f3f5f8;
+  --primary-hover: #ffffff;
+  --on-primary: #0e1f35;
+
+  --nav: #0a1729;
+  --nav-ink: #f3f5f8;
+  --nav-muted: #a9b4c4;
+  --nav-active: #18304f;
+
+  --feed: #070f1b;
+  --feed-ink: #e6ebf2;
+  --feed-muted: #8b98ab;
+
+  --flagged: #ff9a70;
+  --flagged-bg: #3a2320;
+  --flagged-dot: #ff541c;
+  --unsure: #f2c36b;
+  --unsure-bg: #34290f;
+  --confirmed: #ff8f87;
+  --confirmed-bg: #3d1b1f;
+  --cleared: #8db5ff;
+  --cleared-bg: #172c52;
+  --reported: #0e1f35;
+  --reported-bg: #f3f5f8;
+
+  --focus-edge: #f3f5f8;
+  --shadow-pop: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px rgb(0 0 0 / 0.35);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --page: #0e1f35;
+    --section: #13263f;
+    --surface: #162a44;
+    --ink: #f3f5f8;
+    --ink-muted: #a9b4c4;
+    --hairline: #2a3d58;
+    --control: #7d8a9c;
+
+    --signal: #ff541c;
+    --signal-text: #ff8a5b;
+    --signal-wash: #3a2320;
+
+    --primary: #f3f5f8;
+    --primary-hover: #ffffff;
+    --on-primary: #0e1f35;
+
+    --nav: #0a1729;
+    --nav-ink: #f3f5f8;
+    --nav-muted: #a9b4c4;
+    --nav-active: #18304f;
+
+    --feed: #070f1b;
+    --feed-ink: #e6ebf2;
+    --feed-muted: #8b98ab;
+
+    --flagged: #ff9a70;
+    --flagged-bg: #3a2320;
+    --flagged-dot: #ff541c;
+    --unsure: #f2c36b;
+    --unsure-bg: #34290f;
+    --confirmed: #ff8f87;
+    --confirmed-bg: #3d1b1f;
+    --cleared: #8db5ff;
+    --cleared-bg: #172c52;
+    --reported: #0e1f35;
+    --reported-bg: #f3f5f8;
+
+    --focus-edge: #f3f5f8;
+    --shadow-pop: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px rgb(0 0 0 / 0.35);
+  }
+}
+
+/* No default Tailwind palette: only brand tokens exist as colours. */
+@theme inline {
+  --color-*: initial;
+  --color-page: var(--page);
+  --color-section: var(--section);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-hairline: var(--hairline);
+  --color-control: var(--control);
+  --color-signal: var(--signal);
+  --color-signal-text: var(--signal-text);
+  --color-signal-wash: var(--signal-wash);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-on-primary: var(--on-primary);
+  --color-nav: var(--nav);
+  --color-nav-ink: var(--nav-ink);
+  --color-nav-muted: var(--nav-muted);
+  --color-nav-active: var(--nav-active);
+  --color-feed: var(--feed);
+  --color-feed-ink: var(--feed-ink);
+  --color-feed-muted: var(--feed-muted);
+  --color-feed-track: var(--feed-track);
+  --color-feed-line: var(--feed-line);
+  --color-on-signal: var(--on-signal);
+  --color-flagged: var(--flagged);
+  --color-flagged-bg: var(--flagged-bg);
+  --color-flagged-dot: var(--flagged-dot);
+  --color-unsure: var(--unsure);
+  --color-unsure-bg: var(--unsure-bg);
+  --color-confirmed: var(--confirmed);
+  --color-confirmed-bg: var(--confirmed-bg);
+  --color-cleared: var(--cleared);
+  --color-cleared-bg: var(--cleared-bg);
+  --color-reported: var(--reported);
+  --color-reported-bg: var(--reported-bg);
+}
+
+@theme {
+  --font-*: initial;
+  --font-sans: "Plus Jakarta Sans Variable", "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", monospace;
+
+  /* Type scale from the PDF (04 Typography) */
+  --text-display-xl: 4rem;
+  --text-display-xl--line-height: 1;
+  --text-display-xl--letter-spacing: -0.04em;
+  --text-display-xl--font-weight: 800;
+  --text-display: 2.75rem;
+  --text-display--line-height: 1.04;
+  --text-display--letter-spacing: -0.035em;
+  --text-display--font-weight: 800;
+  --text-stat: 3rem;
+  --text-stat--line-height: 1;
+  --text-stat--letter-spacing: -0.035em;
+  --text-stat--font-weight: 800;
+  --text-h1: 2rem;
+  --text-h1--line-height: 1.12;
+  --text-h1--letter-spacing: -0.025em;
+  --text-h1--font-weight: 700;
+  --text-h2: 1.5rem;
+  --text-h2--line-height: 1.2;
+  --text-h2--letter-spacing: -0.02em;
+  --text-h2--font-weight: 700;
+  --text-h3: 1.125rem;
+  --text-h3--line-height: 1.35;
+  --text-h3--letter-spacing: -0.01em;
+  --text-h3--font-weight: 700;
+  --text-body-lg: 1.125rem;
+  --text-body-lg--line-height: 1.6;
+  --text-body: 0.9375rem;
+  --text-body--line-height: 1.55;
+  --text-label: 0.8125rem;
+  --text-label--line-height: 1.25;
+  --text-label--font-weight: 600;
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1.4;
+  --text-caption--font-weight: 500;
+  --text-overlay: 0.6875rem;
+  --text-overlay--line-height: 1.2;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+
+  --ease-snap: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-press: cubic-bezier(0.3, 0, 0.2, 1);
+
+  --breakpoint-xs: 26rem;
+}
+
+/* ------------------------------------------------------------------ base */
+@layer base {
+  html {
+    background: var(--page);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 100%;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    background: var(--page);
+    color: var(--ink);
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    min-height: 100dvh;
+  }
+  ::selection {
+    background: var(--signal-wash);
+    color: var(--ink);
+  }
+  /* One focus treatment everywhere: 2px Signal Orange with a 2px gap (PDF),
+     plus a 1px ink edge so it holds 3:1 on the grey section background too. */
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid transparent;
+    box-shadow:
+      0 0 0 2px var(--focus-gap),
+      0 0 0 4px var(--signal),
+      0 0 0 5px var(--focus-edge);
+  }
+  .focus-ring-within:has(:focus-visible) {
+    box-shadow:
+      0 0 0 2px var(--focus-gap),
+      0 0 0 4px var(--signal),
+      0 0 0 5px var(--focus-edge);
+  }
+  [hidden] {
+    display: none !important;
+  }
+}
+
+/* ------------------------------------------------------------------ utilities */
+@utility eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.3;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+@utility hatch {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    var(--signal) 0 3px,
+    transparent 3px 6px
+  );
+}
+
+/* ------------------------------------------------------------------ motion
+   Motion only where it explains something. 140-240ms, custom easing. */
+@keyframes scan-sweep {
+  from { transform: translateY(0%); }
+  to { transform: translateY(100%); }
+}
+@keyframes grow-x {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+@keyframes cell-fill {
+  from { transform: scaleY(0.2); opacity: 0; }
+  to { transform: scaleY(1); opacity: 1; }
+}
+@keyframes draw-stroke {
+  from { stroke-dashoffset: var(--dash, 24); }
+  to { stroke-dashoffset: 0; }
+}
+@keyframes rise-in {
+  from { transform: translateY(6px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+@keyframes progress-indeterminate {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.anim-scan { animation: scan-sweep 2.4s linear infinite; }
+.anim-grow-x { transform-origin: left center; animation: grow-x 240ms var(--ease-snap) both; }
+.anim-cell { transform-origin: bottom center; animation: cell-fill 140ms var(--ease-snap) both; }
+.anim-draw { stroke-dasharray: var(--dash, 24); animation: draw-stroke 200ms var(--ease-snap) both; }
+.anim-rise { animation: rise-in 220ms var(--ease-snap) both; }
+.anim-indeterminate { animation: progress-indeterminate 1.4s var(--ease-press) infinite; }
+.anim-pulse { animation: pulse-dot 1.6s ease-in-out infinite; }
+
+/* Skeletons: flat blocks shaped like the content, no shimmer. */
+.skeleton {
+  background: var(--section);
+  border-radius: var(--radius-sm);
+}
+:root[data-theme="dark"] .skeleton { background: var(--hairline); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+  .anim-scan { animation: none !important; top: 50%; }
+  .anim-indeterminate { animation: none !important; transform: none; width: 40%; }
+  .anim-pulse { animation: none !important; }
+}
+
+/* ------------------------------------------------------------------ print (incident report) */
+@media print {
+  @page { margin: 16mm; }
+  :root, :root[data-theme="dark"] {
+    --page: #ffffff;
+    --section: #f3f5f8;
+    --surface: #ffffff;
+    --ink: #0e1f35;
+    --ink-muted: #556275;
+    --hairline: #d9dee6;
+  }
+  html, body { background: #ffffff !important; }
+  .no-print { display: none !important; }
+  .print-only { display: block !important; }
+  .print-break-avoid { break-inside: avoid; }
+}
+.print-only { display: none; }

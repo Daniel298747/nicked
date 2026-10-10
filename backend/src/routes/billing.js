@@ -185,6 +185,18 @@ router.get('/verify', loadShop, async (req, res) => {
 
 // POST /api/billing/cameras { cameras: 5 } → "Add a camera": changes the camera quantity with proration.
 // Stripe bills the difference; the webhook then updates the plan and creates or pauses cameras.
+// POST /api/billing/portal → { url } of Stripe's billing portal (card, invoices, cameras, cancel)
+router.post('/portal', loadShop, async (req, res) => {
+  if (!req.shop.stripeCustomerId) {
+    throw new AppError('There is no billing account yet. Choose a plan first.', 409, 'NO_CUSTOMER');
+  }
+  const session = await getStripe().billingPortal.sessions.create({
+    customer: req.shop.stripeCustomerId,
+    return_url: `${config.clientUrl}/app/settings/billing`,
+  });
+  res.json({ url: session.url });
+});
+
 router.post('/cameras', loadShop, async (req, res) => {
   const parsed = z.object({ cameras: z.coerce.number().int().min(1).max(50) }).safeParse(req.body || {});
   if (!parsed.success) throw new AppError('Send { "cameras": <1–50> }.', 400, 'VALIDATION');

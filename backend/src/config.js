@@ -15,7 +15,8 @@ export const config = {
   appName: process.env.APP_NAME || 'Nicked',
   demoShopName: process.env.DEMO_SHOP_NAME || 'Demo Corner Shop',
   mongoUri: process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/hackucd',
-  // Comma-separated frontend origins for CORS. The first one is used for Stripe redirects.
+  // Comma-separated frontend origins for CORS (* allowed, e.g. https://nicked-*.vercel.app).
+  // The first one is used for Stripe redirects, so put the production URL first.
   clientUrls: (process.env.CLIENT_URL || 'http://localhost:5173')
     .split(',')
     .map((s) => s.trim().replace(/\/$/, ''))

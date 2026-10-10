@@ -1,0 +1,28 @@
+# Render blueprint for the backend + detector. The frontend is on Vercel.
+# Needs at least 2 GB RAM (torch + Node): the Standard plan or above.
+services:
+  - type: web
+    name: nicked-api
+    runtime: docker
+    plan: standard
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    disk:
+      name: nicked-data
+      mountPath: /data
+      sizeGB: 10
+    envVars:
+      - key: MONGODB_URI
+        sync: false # mongodb+srv://… from MongoDB Atlas
+      - key: CLIENT_URL
+        sync: false # https://your-app.vercel.app,https://your-app-*.vercel.app
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: DETECT_MODEL
+        value: anthropic/claude-haiku-5.5
+      - key: STRIPE_SECRET_KEY
+        sync: false # sk_test_… (live keys are refused)
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false # whsec_… from the Stripe dashboard webhook for https://<this-service>/api/billing/webhook
+      - key: MAX_UPLOAD_MB
+        value: "2048"

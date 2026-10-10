@@ -92,7 +92,8 @@ router.get('/:id', async (req, res) => {
 });
 
 const reviewSchema = z.object({
-  decision: z.enum(['confirmed', 'dismissed', 'unsure']),
+  // "pending" undoes a decision: the event goes back to Flagged.
+  decision: z.enum(['confirmed', 'dismissed', 'unsure', 'pending']),
   checklist: z.object(Object.fromEntries(CHECKLIST_KEYS.map((k) => [k, z.boolean().nullable().optional()]))).optional(),
   note: z.string().max(1000).optional(),
 });
@@ -122,7 +123,7 @@ router.post('/:id/review', async (req, res) => {
   for (const k of CHECKLIST_KEYS) if (k in checklist) event.checklist[k] = checklist[k];
   event.status = decision;
   if (note !== undefined) event.reviewNote = note;
-  event.reviewedAt = new Date();
+  event.reviewedAt = decision === 'pending' ? undefined : new Date();
   await event.save();
 
   const warnings = [];

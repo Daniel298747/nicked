@@ -12,10 +12,17 @@ import billingRoutes, { stripeWebhook } from './routes/billing.js';
 import { errorHandler, notFoundHandler } from './middleware/errors.js';
 import { BRAND } from './services/brand.js';
 
+/** A CLIENT_URL entry with * (e.g. https://nicked-*.vercel.app for preview deploys) becomes a regex. */
+export function originPattern(url) {
+  if (!url.includes('*')) return url;
+  const escaped = url.split('*').map((part) => part.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&'));
+  return new RegExp(`^${escaped.join('[a-z0-9-]+')}$`);
+}
+
 export function createApp() {
   const app = express();
   app.disable('x-powered-by');
-  app.use(cors({ origin: config.clientUrls }));
+  app.use(cors({ origin: config.clientUrls.map(originPattern) }));
 
   // Stripe needs the raw body to verify the signature, so this route comes before express.json().
   app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), stripeWebhook);
