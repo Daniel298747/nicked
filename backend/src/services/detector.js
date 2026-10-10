@@ -8,18 +8,18 @@ import { normalizeDetectorResponse, zonesSchema } from './aiJson.js';
  * Gets YOLO candidates for a video: people who spent time at the shelf,
  * never visited the till, then reached the exit.
  *
- * - DETECTOR_URL set: calls the teammate's Python service (POST /detect).
+ * - DETECTOR_URL set: calls the Python YOLO service in ../detector (POST /detect).
  * - Otherwise: mock mode, so the MERN side works before the Python side is ready.
  */
-export async function detectCandidates({ videoPath, originalName, zones, durationSec }) {
+export async function detectCandidates({ videoPath, originalName, zones, durationSec, cameraName }) {
   const started = Date.now();
   const result = config.detector.url
-    ? await detectViaHttp({ videoPath, zones, durationSec })
+    ? await detectViaHttp({ videoPath, zones, durationSec, cameraName })
     : await detectViaMock({ originalName, durationSec });
   return { ...result, ms: Date.now() - started };
 }
 
-async function detectViaHttp({ videoPath, zones, durationSec }) {
+async function detectViaHttp({ videoPath, zones, durationSec, cameraName }) {
   const url = `${config.detector.url}/detect`;
   let res;
   try {
@@ -30,6 +30,8 @@ async function detectViaHttp({ videoPath, zones, durationSec }) {
         video_path: videoPath,
         zones,
         min_shelf_seconds: config.detector.minShelfSeconds,
+        // Drawn on the annotated video's feed overlay
+        ...(cameraName ? { camera_name: cameraName } : {}),
       }),
       signal: AbortSignal.timeout(config.detector.timeoutMs),
     });
@@ -37,7 +39,7 @@ async function detectViaHttp({ videoPath, zones, durationSec }) {
     if (err.name === 'TimeoutError') {
       throw new AppError('The detector took too long. Try a shorter clip.', 504, 'DETECTOR_TIMEOUT');
     }
-    throw new AppError(`Can't reach the detector at ${config.detector.url}. Is the Python service running?`, 503, 'DETECTOR_DOWN');
+    throw new AppError(`Can't reach the detector at ${config.detector.url}. Is the Python service running? (cd detector && uvicorn server:app --port 8000)`, 503, 'DETECTOR_DOWN');
   }
 
   const body = await res.json().catch(() => null);
@@ -54,13 +56,13 @@ async function detectViaHttp({ videoPath, zones, durationSec }) {
 
 /**
  * Mock detector. If mock-detections/<video name>.json exists (e.g. the
- * events.json your teammate's detect.py produced for that clip), it's used.
+ * output of `python detect.py <clip> zones.json --mock-dir ...` for that clip), it's used.
  * Otherwise one fake candidate is made from 30% to 80% of the video.
  */
 async function detectViaMock({ originalName, durationSec }) {
   const base = path.parse(originalName || '').name;
   const file = path.join(config.detector.mockDir, `${base}.json`);
-  // Optional: the teammate's rendered video with boxes and zones, saved as <video name>.annotated.mp4
+  // Optional: detect.py's rendered video with boxes and zones, saved as <video name>.annotated.mp4
   const annotated = path.join(config.detector.mockDir, `${base}.annotated.mp4`);
   const annotatedVideoPath = await access(annotated).then(() => annotated, () => undefined);
   try {

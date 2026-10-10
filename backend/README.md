@@ -3,7 +3,7 @@
 Express + MongoDB API for the shop CCTV review tool.
 
 ```
-upload video ─► YOLO detector (teammate's Python service, or mock)
+upload video ─► YOLO detector (../detector, or mock)
             ─► candidates: shelf → no till → exit  (+ person boxes, + annotated video)
             ─► per candidate, AI check in two passes:
                  1. overview: ≤16 frames across the window (cheap model)
@@ -57,7 +57,7 @@ The shop is activated two ways, both idempotent: the webhook (`checkout.session.
 
 Leave `DETECTOR_URL` empty. Each upload gets one fake candidate, or uses `mock-detections/<video name>.json` if you drop the teammate's `events.json` there. Set `DEV_BYPASS_PAYWALL=true` to skip Stripe while building the UI (turn it off for the demo).
 
-When the Python service is up: set `DETECTOR_URL=http://localhost:8000` and add `zones.json`. The contract is in [docs/DETECTOR_CONTRACT.md](docs/DETECTOR_CONTRACT.md).
+When the Python service is up (`cd ../detector && uvicorn server:app --port 8000`, see [detector/README.md](../detector/README.md)): set `DETECTOR_URL=http://localhost:8000` and add `zones.json` (`python ../detector/pick_zones.py <clip> zones.json`). The contract is in [docs/DETECTOR_CONTRACT.md](docs/DETECTOR_CONTRACT.md).
 
 ## API
 
@@ -66,6 +66,7 @@ All responses are JSON. Errors look like `{ "error": "readable message", "code":
 | Method | Path | What it does |
 |---|---|---|
 | GET | `/api/health` | Server, DB, detector mode, key status |
+| GET | `/api/brand` | Design tokens, status colours and wording from the brand guidelines (for the frontend) |
 | GET | `/api/shop` | Demo shop: subscription status, payments |
 | PATCH | `/api/shop` | `{ name?, email?, layoutNotes? }` (layout notes go into the AI prompt) |
 | GET | `/api/billing/plan` | Price, currency, interval, features (for the pricing page) |
@@ -79,7 +80,7 @@ All responses are JSON. Errors look like `{ "error": "readable message", "code":
 | GET | `/api/clips/:id/video` | Stream for `<video src>` (seekable). Also in `clip.videoUrl` |
 | GET | `/api/clips/:id/annotated` | YOLO's video with boxes, IDs and zones drawn on, if sent. `clip.annotatedVideoUrl` is null otherwise |
 | DELETE | `/api/clips/:id` | Delete footage, events and reports |
-| GET | `/api/events?view=queue` | Review queue (AI yes/unclear/error, pending), best first. Also `ai_ruled_out`, `reviewed`, `all`; `&clip=<id>` |
+| GET | `/api/events?view=queue` | Review queue (AI yes/unclear/error, pending), best first. Also `ai_ruled_out`, `reviewed`, `all`; `&clip=<id>`. An empty queue also returns `empty: "Quiet day. No flags since 9:14."` |
 | GET | `/api/events/:id` | One event (+ its incident, if any) |
 | GET | `/api/events/:id/thumbnail` | Key frame for the queue card (`event.ai.thumbnailUrl`) |
 | GET | `/api/events/:id/evidence/:i` | Frames the AI cited (`event.ai.evidence[i].url`, with its `label` time) |
@@ -112,9 +113,29 @@ All responses are JSON. Errors look like `{ "error": "readable message", "code":
     "evidence": [ { "label": "00:45.3", "cropped": true, "url": "/api/events/…/evidence/0" } ]
   },
   "eventType": "possible_concealment", "inQueue": true, "flags": [],
-  "status": "pending", "checklist": { "pickedUpItem": null, "concealedItem": null, "avoidedTill": null, "leftShop": null }
+  "status": "pending", "checklist": { "pickedUpItem": null, "concealedItem": null, "avoidedTill": null, "leftShop": null },
+  "display": {
+    "status": { "key": "flagged", "label": "Flagged", "fg": "#C23C0B", "bg": "#FFEDE5" },
+    "title": "Possible concealment, aisle 3",
+    "meta": "AISLE 3 · 00:39.0 · 86% · 0:33 CLIP",
+    "reassurance": "Nothing goes to the Gardaí until you confirm.",
+    "keptForLater": false
+  }
 }
 ```
+
+### Brand wording (`display`)
+
+Every event carries ready-to-render copy from the brand guidelines, so no screen has to invent its own wording:
+
+| Owner decision | `display.status.label` | Colours (text on fill) |
+|---|---|---|
+| pending, unsure | Flagged | `#C23C0B` on `#FFEDE5` |
+| confirmed | Confirmed | `#B42318` on `#FDECEA` |
+| dismissed | Cleared (blue, never green) | `#1D5FD1` on `#E8F0FD` |
+| confirmed and the report is marked shared | Reported to Gardaí | `#FFFFFF` on `#0E1F35` |
+
+The title always says *possible* and never names a person. `meta` is the JetBrains Mono overlay line. `reassurance` is set while the owner still has to decide, and is `null` after that. Incidents carry the same `status` badge. With the pose model on, `candidate.handToWaist` shows whether a hand went to the waist after the shelf visit. It's a hint for the UI, not evidence.
 
 Frontend ideas that make this land: an evidence strip of `ai.evidence` images under the player (click one → `video.currentTime` = its time), the two passes shown as "First look: unclear → Close look: yes", and a toggle between `clip.videoUrl` and `clip.annotatedVideoUrl`.
 

@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { eventDisplay } from '../services/brand.js';
 
 export const AI_VERDICTS = ['yes', 'no', 'unclear', 'error'];
 export const EVENT_TYPES = ['possible_concealment', 'no_concealment_seen', 'unclear_activity', 'ai_check_failed'];
@@ -29,6 +30,8 @@ const eventSchema = new mongoose.Schema(
       visitedTill: Boolean,
       rule: String,
       boxCount: Number, // person boxes the detector sent (used for close-up crops)
+      handToWaist: Boolean, // pose model: hand moved to the waist after the shelf (undefined without pose)
+      handToWaistSec: Number,
     },
 
     // 2. What the OpenRouter vision check said
@@ -81,13 +84,15 @@ const eventSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
-eventSchema.methods.toPublic = function toPublic() {
+// `reported`: the incident report for this event was shared with the Gardaí (status badge only).
+eventSchema.methods.toPublic = function toPublic({ reported = false } = {}) {
   const o = this.toObject({ versionKey: false });
   o.id = String(o._id);
   delete o._id;
   o.shop = String(o.shop);
+  const camera = o.clip?.camera?._id ? { id: String(o.clip.camera._id), name: o.clip.camera.name } : null;
   if (o.clip && typeof o.clip === 'object' && o.clip._id) {
-    o.clip = { id: String(o.clip._id), originalName: o.clip.originalName, durationSec: o.clip.durationSec };
+    o.clip = { id: String(o.clip._id), originalName: o.clip.originalName, durationSec: o.clip.durationSec, camera };
   } else {
     o.clip = String(o.clip);
   }
@@ -99,6 +104,8 @@ eventSchema.methods.toPublic = function toPublic() {
     delete o.ai.evidenceKey;
     delete o.ai.thumbnail;
   }
+  // Brand copy for the incident card: status badge, "Possible concealment, aisle 3", mono meta line
+  o.display = eventDisplay(o, { camera, reported });
   return o;
 };
 

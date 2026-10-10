@@ -1,0 +1,9 @@
+{
+  "name": "nicked",
+  "private": true,
+  "type": "module",
+  "description": "Vercel project root: frontend/ is the static site, api/index.js is the API. See README.md.",
+  "engines": {
+    "node": "22.x"
+  }
+}

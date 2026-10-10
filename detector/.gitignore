@@ -1,0 +1,10 @@
+out/
+test/*.mp4
+test/*.jpg
+test/events.json
+*.pt
+.venv/
+__pycache__/
+zones.json
+events.json
+*.log

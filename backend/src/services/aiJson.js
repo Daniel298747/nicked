@@ -77,6 +77,9 @@ const candidateSchema = z.object({
   visited_till: z.boolean().optional(),
   rule: z.string().optional(),
   boxes: z.array(z.unknown()).optional(),
+  // Pose model only: a wrist stayed level with a hip after the shelf visit (a hint, not proof)
+  hand_to_waist: z.boolean().optional(),
+  hand_to_waist_at: z.coerce.number().optional(),
 });
 
 // One bounding box of the tracked person: seconds into the video + [x1, y1, x2, y2] in original pixels.
@@ -142,6 +145,8 @@ export function normalizeDetectorResponse(data, durationSec) {
       visitedTill: c.data.visited_till ?? false,
       rule: c.data.rule || 'shelf -> no till -> exit',
       boxes: normalizeBoxes(c.data.boxes),
+      handToWaist: c.data.hand_to_waist,
+      handToWaistSec: c.data.hand_to_waist_at,
     });
   });
 

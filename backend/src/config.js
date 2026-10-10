@@ -10,17 +10,28 @@ const num = (value, fallback) => {
 
 const detectModel = process.env.DETECT_MODEL || 'anthropic/claude-haiku-5.5';
 
+// On Vercel the API runs as a function: read-only disk (except /tmp), 4.5 MB request
+// bodies, no ffmpeg or YOLO. Video upload and analysis run on the worker instead.
+const onVercel = Boolean(process.env.VERCEL);
+const vercelUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL;
+
 export const config = {
   port: num(process.env.PORT, 4000),
   appName: process.env.APP_NAME || 'Nicked',
   demoShopName: process.env.DEMO_SHOP_NAME || 'Demo Corner Shop',
+  onVercel,
   mongoUri: process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/hackucd',
-  // Comma-separated frontend origins for CORS. The first one is used for Stripe redirects.
-  clientUrls: (process.env.CLIENT_URL || 'http://localhost:5173')
+  mongoConfigured: Boolean(process.env.MONGODB_URI) || !onVercel,
+  // False on Vercel unless ANALYSIS_ON_THIS_HOST=true: uploads go to the worker (WORKER_URL).
+  analysisOnThisHost: onVercel ? process.env.ANALYSIS_ON_THIS_HOST === 'true' : true,
+  workerUrl: (process.env.WORKER_URL || '').replace(/\/$/, ''),
+  // Comma-separated frontend origins for CORS (* allowed, e.g. https://nicked-*.vercel.app).
+  // The first one is used for Stripe redirects, so put the production URL first.
+  clientUrls: (process.env.CLIENT_URL || (vercelUrl ? `https://${vercelUrl}` : 'http://localhost:5173'))
     .split(',')
     .map((s) => s.trim().replace(/\/$/, ''))
     .filter(Boolean),
-  uploadDir: path.resolve(process.env.UPLOAD_DIR || 'uploads'),
+  uploadDir: path.resolve(process.env.UPLOAD_DIR || (onVercel ? '/tmp/nicked-uploads' : 'uploads')),
   maxUploadMb: num(process.env.MAX_UPLOAD_MB, 300),
   zonesFile: path.resolve(process.env.ZONES_FILE || 'zones.json'),
   // Footage older than this is deleted automatically, unless it backs an incident report. 0 turns it off.
@@ -29,7 +40,7 @@ export const config = {
   devBypassPaywall: process.env.DEV_BYPASS_PAYWALL === 'true',
 
   detector: {
-    // Your teammate's Python YOLO service. Leave empty to use the built-in mock detector.
+    // The Python YOLO service in ../detector. Leave empty to use the built-in mock detector.
     url: (process.env.DETECTOR_URL || '').replace(/\/$/, ''),
     timeoutMs: num(process.env.DETECTOR_TIMEOUT_MS, 10 * 60_000),
     minShelfSeconds: num(process.env.MIN_SHELF_SECONDS, 2),

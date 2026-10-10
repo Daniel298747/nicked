@@ -1,0 +1,10 @@
+.git
+**/node_modules
+**/.venv
+**/__pycache__
+frontend
+backend/uploads
+backend/.env
+detector/out
+detector/test/*.mp4
+detector/*.pt

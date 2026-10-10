@@ -1,0 +1,10 @@
+# YOLO detector for the Nicked backend. Python 3.10+.
+# CPU-only torch keeps the install small:
+#   pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
+ultralytics>=8.4      # AGPL-3.0: YOLO26 person detection + ByteTrack tracking
+lap>=0.5              # ByteTrack's assignment solver (Ultralytics installs it on first run otherwise)
+supervision>=0.26     # MIT: shelf / till / exit zones
+opencv-python>=4.10   # read video, write the annotated copy
+numpy
+fastapi>=0.110
+uvicorn>=0.29

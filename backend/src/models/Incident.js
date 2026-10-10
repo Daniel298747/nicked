@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { statusBadge } from '../services/brand.js';
 
 const incidentSchema = new mongoose.Schema(
   {
@@ -25,6 +26,8 @@ incidentSchema.methods.toPublic = function toPublic() {
   delete o._id;
   delete o.clipExportPath;
   for (const k of ['shop', 'event', 'clip']) o[k] = String(o[k]);
+  // Only a confirmed event gets a report; it becomes "Reported to Gardaí" once the owner says they sent it.
+  o.status = statusBadge(o.sharedWithGardai ? 'reported' : 'confirmed');
   return o;
 };
 

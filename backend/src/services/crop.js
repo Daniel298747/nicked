@@ -1,5 +1,5 @@
 import { readFile, writeFile } from 'node:fs/promises';
-import sharp from 'sharp';
+import { loadSharp } from './sharp.js';
 
 /** The tracked person's box nearest in time to `seconds`, if one is within `maxGap` seconds. */
 export function boxAt(boxes, seconds, maxGap = 1.0) {
@@ -45,6 +45,7 @@ export function cropRect(box, imgW, imgH, { pad = 0.35, minSize = 224, scale = 1
  * many frames were actually cropped.
  */
 export async function cropFramesToPerson(frames, boxes, { maxWidth = 960, sourceWidth } = {}) {
+  const sharp = await loadSharp();
   let cropped = 0;
   for (const f of frames) {
     const input = await readFile(f.path);

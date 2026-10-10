@@ -1,0 +1,15 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "npm ci --prefix frontend && npm ci --prefix backend --omit=dev",
+  "buildCommand": "VITE_LIVE=true npm run build --prefix frontend",
+  "outputDirectory": "frontend/dist",
+  "functions": {
+    "api/index.js": { "maxDuration": 60 }
+  },
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api" },
+    { "source": "/webhooks/:path*", "destination": "/api" },
+    { "source": "/((?!assets/|favicon\.svg).*)", "destination": "/index.html" }
+  ]
+}
