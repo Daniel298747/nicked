@@ -11,6 +11,12 @@ const clipSchema = new mongoose.Schema(
     width: Number,
     height: Number,
     zones: mongoose.Schema.Types.Mixed, // the shelf/till/exit polygons used for this run
+    camera: { type: mongoose.Schema.Types.ObjectId, ref: 'Camera', index: true },
+    freeScan: { type: Boolean, default: false },
+    usageDate: String, // shop-local date the analysis was counted against
+    analysisLimitSec: Number, // set when the camera's daily cap only covers part of the clip
+    framesSampled: { type: Number, default: 0 },
+    framesSent: { type: Number, default: 0 },
 
     status: { type: String, enum: ['queued', 'processing', 'done', 'failed'], default: 'queued' },
     stage: { type: String, enum: ['queued', 'detecting', 'verifying', 'finished'], default: 'queued' },
@@ -54,6 +60,7 @@ clipSchema.methods.toPublic = function toPublic() {
   delete o._id;
   delete o.storedPath;
   o.shop = String(o.shop);
+  if (o.camera) o.camera = String(o.camera);
   o.videoUrl = `/api/clips/${o.id}/video`;
   o.annotatedVideoUrl = o.detector?.annotatedPath ? `/api/clips/${o.id}/annotated` : null;
   if (o.detector) delete o.detector.annotatedPath;

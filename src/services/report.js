@@ -64,7 +64,15 @@ export async function writeNarrative(facts, { model = config.openrouter.reportMo
     { role: 'system', content: REPORT_SYSTEM_PROMPT },
     { role: 'user', content: `Facts (JSON):\n${JSON.stringify(facts, null, 2)}` },
   ];
+  const started = Date.now();
+  const usage = { promptTokens: 0, completionTokens: 0, cost: 0 };
+  const add = (u) => {
+    usage.promptTokens += u.promptTokens;
+    usage.completionTokens += u.completionTokens;
+    usage.cost += u.cost;
+  };
   let reply = await chat({ model, messages, temperature: 0.2, maxTokens: 400 });
+  add(reply.usage);
   let text = reply.text.trim();
   let loaded = findLoadedTerms(text);
 
@@ -79,6 +87,7 @@ export async function writeNarrative(facts, { model = config.openrouter.reportMo
         { role: 'user', content: `Rewrite it without these words: ${loaded.join(', ')}. Describe actions only.` },
       ],
     });
+    add(reply.usage);
     text = reply.text.trim();
     loaded = findLoadedTerms(text);
   }
@@ -87,6 +96,7 @@ export async function writeNarrative(facts, { model = config.openrouter.reportMo
   return {
     narrative: text,
     model: reply.model,
+    call: { purpose: 'report', model: reply.model, ...usage, latencyMs: Date.now() - started },
     languageWarnings: loaded.length ? [`Contains loaded terms (${loaded.join(', ')}). Edit before sharing.`] : [],
   };
 }

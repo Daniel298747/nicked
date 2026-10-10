@@ -28,6 +28,25 @@ const shopSchema = new mongoose.Schema(
     currentPeriodEnd: Date,
     activatedAt: Date,
     payments: { type: [paymentSchema], default: [] },
+
+    // Entitlements, re-derived from the Stripe subscription's items on every webhook
+    planInterval: { type: String, enum: ['month', 'year', null], default: null },
+    camerasAllowed: { type: Number, default: 0 },
+    camerasAlwaysOn: { type: Number, default: 0 },
+    retentionDays: { type: Number, default: 30 },
+    locationsAllowed: { type: Number, default: 1 },
+    graceUntil: Date, // set by invoice.payment_failed; analysis stays on until then
+
+    isFounding: { type: Boolean, default: false }, // first 100 shops whose first invoice is paid
+    firstPaidAt: Date,
+    freeScanUsed: { type: Boolean, default: false },
+    timezone: { type: String, default: 'Europe/Dublin' },
+    marginAlert: {
+      flagged: Boolean,
+      aiCostEur: Number,
+      subscriptionValueEur: Number,
+      checkedAt: Date,
+    },
   },
   { timestamps: true },
 );
@@ -43,6 +62,19 @@ shopSchema.methods.toPublic = function toPublic() {
     currentPeriodEnd: this.currentPeriodEnd,
     activatedAt: this.activatedAt,
     payments: this.payments,
+    inGracePeriod: Boolean(this.subscriptionStatus === 'past_due' && this.graceUntil && this.graceUntil > new Date()),
+    graceUntil: this.graceUntil,
+    entitlements: {
+      planInterval: this.planInterval,
+      camerasAllowed: this.camerasAllowed,
+      camerasAlwaysOn: this.camerasAlwaysOn,
+      retentionDays: this.retentionDays,
+      locationsAllowed: this.locationsAllowed,
+    },
+    isFounding: this.isFounding,
+    freeScanAvailable: this.subscriptionStatus === 'inactive' && !this.freeScanUsed,
+    timezone: this.timezone,
+    marginAlert: this.marginAlert,
     createdAt: this.createdAt,
   };
 };

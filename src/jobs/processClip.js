@@ -8,6 +8,8 @@ import { detectCandidates } from '../services/detector.js';
 import { verifyCandidate } from '../services/verify.js';
 import { measureBrightness, transcodeForWeb } from '../services/ffmpeg.js';
 import { describeAiError, isFatalAiError } from '../services/openrouter.js';
+import { recordAi } from '../services/usage.js';
+import { formatTime } from '../utils/time.js';
 
 async function mapPool(items, limit, fn) {
   const results = new Array(items.length);
@@ -94,13 +96,23 @@ export async function processClip(clipId, { model = config.openrouter.detectMode
       warnings.push('The detector sent no person boxes, so close-ups use the full frame instead of a crop around the person.');
     }
 
+    // Daily cap: if the camera only had part of its budget left, only that part is analysed.
+    let detected = detection.candidates;
+    if (clip.analysisLimitSec) {
+      const limit = clip.analysisLimitSec;
+      detected = detected
+        .filter((c) => c.startSec < limit)
+        .map((c) => (c.endSec > limit ? { ...c, endSec: limit, endTime: formatTime(limit) } : c));
+      warnings.push(`Daily analysis cap reached: only the first ${formatTime(limit)} of this clip was analysed.`);
+    }
+
     // Reviewed events from a previous run are kept; don't recreate duplicates of them.
     const reviewed = await Event.find({ clip: clip._id, status: { $ne: 'pending' } }).select('startSec endSec');
-    const candidates = detection.candidates.filter((c) => !reviewed.some((r) => overlaps(r, c)));
+    const candidates = detected.filter((c) => !reviewed.some((r) => overlaps(r, c)));
 
     clip.stage = 'verifying';
     clip.progress = { checked: 0, total: candidates.length };
-    clip.counts = { candidates: detection.candidates.length, aiYes: 0, aiNo: 0, aiUnclear: 0, aiError: 0 };
+    clip.counts = { candidates: detected.length, aiYes: 0, aiNo: 0, aiUnclear: 0, aiError: 0 };
     clip.warnings = warnings;
     await clip.save();
 
@@ -164,7 +176,20 @@ export async function processClip(clipId, { model = config.openrouter.detectMode
     }));
     if (docs.length) await Event.insertMany(docs);
 
+    // Track every AI call (tokens + cost) and the camera's frames and cost for today.
+    await recordAi({
+      shopId: clip.shop,
+      cameraId: clip.camera,
+      clipId: clip._id,
+      date: clip.usageDate,
+      calls: results.flatMap((r) => r.calls || []),
+      framesSampled: results.reduce((s, r) => s + (r.framesSampled || 0), 0),
+      framesSent: results.reduce((s, r) => s + (r.framesSent || 0), 0),
+    }).catch((err) => console.error('[recordAi]', err.message));
+
     const fresh = await Clip.findById(clip._id);
+    fresh.framesSampled = results.reduce((s, r) => s + (r.framesSampled || 0), 0);
+    fresh.framesSent = results.reduce((s, r) => s + (r.framesSent || 0), 0);
     for (const r of results) {
       const key = { yes: 'aiYes', no: 'aiNo', unclear: 'aiUnclear', error: 'aiError' }[r.ai.verdict];
       fresh.counts[key] += 1;
@@ -175,7 +200,7 @@ export async function processClip(clipId, { model = config.openrouter.detectMode
       }
     }
     if (fatal) fresh.warnings.push(`AI checks stopped early: ${fatal} Candidates are still in the queue for manual review.`);
-    if (!detection.candidates.length) {
+    if (!detected.length) {
       fresh.warnings.push('The tracker found nobody who went from the shelf to the exit without visiting the till.');
     }
     Object.assign(fresh, {

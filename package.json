@@ -9,7 +9,8 @@
     "test": "node --test \"test/**/*.test.js\"",
     "stripe:seed": "node scripts/seed-stripe.js",
     "models:list": "node scripts/list-vision-models.js",
-    "models:compare": "node scripts/compare-models.js"
+    "models:compare": "node scripts/compare-models.js",
+    "shop:reset": "node scripts/reset-demo-shop.js"
   },
   "license": "UNLICENSED",
   "dependencies": {

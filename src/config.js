@@ -49,8 +49,13 @@ export const config = {
   verify: {
     fps: num(process.env.SAMPLE_FPS, 2),
     // A 33 s candidate at 2 fps would be 66 images. We lower the frame rate so each check sends at most this many.
-    maxFrames: num(process.env.MAX_FRAMES_PER_EVENT, 16),
-    frameWidth: num(process.env.FRAME_WIDTH, 640),
+    // Vision pass: ~512px frames in batches of 10–15 (offer spec, cost controls).
+    maxFrames: num(process.env.MAX_FRAMES_PER_EVENT, 15),
+    frameWidth: num(process.env.FRAME_WIDTH, 512),
+    // Motion skipping: drop overview frames that barely changed since the last frame sent.
+    // A frame is kept if at least this share of thumbnail pixels changed by more than MOTION_PIXEL_DELTA.
+    motionMinChanged: Number.isFinite(Number(process.env.MOTION_MIN_CHANGED)) ? Number(process.env.MOTION_MIN_CHANGED) : 0.002,
+    motionPixelDelta: num(process.env.MOTION_PIXEL_DELTA, 10),
     concurrency: num(process.env.VERIFY_CONCURRENCY, 3),
     // Close-up pass: dense frames around the moment the first pass pointed at.
     closeLook: process.env.CLOSE_LOOK !== 'false',
@@ -63,6 +68,18 @@ export const config = {
     detectorPadBefore: Number.isFinite(Number(process.env.DETECTOR_PAD_BEFORE)) ? Number(process.env.DETECTOR_PAD_BEFORE) : 3,
     // Average luma (0–255) below this adds a "footage is very dark" warning.
     darkThreshold: num(process.env.DARK_THRESHOLD, 45),
+  },
+
+  plan: {
+    freeScanMaxSeconds: num(process.env.FREE_SCAN_MAX_SECONDS, 3600),
+    dailyCapSeconds: num(process.env.DAILY_CAP_SECONDS, 43_200), // 12 hours
+    alwaysOnCapSeconds: num(process.env.ALWAYS_ON_CAP_SECONDS, 86_400), // 24 hours
+    graceDays: num(process.env.GRACE_DAYS, 3),
+    foundingLimit: num(process.env.FOUNDING_LIMIT, 100),
+    defaultTimezone: process.env.SHOP_TIMEZONE || 'Europe/Dublin',
+    // Margin alert: flag a shop when this month's AI cost is above this share of its subscription value.
+    marginAlertShare: Number.isFinite(Number(process.env.MARGIN_ALERT_SHARE)) ? Number(process.env.MARGIN_ALERT_SHARE) : 1 / 3,
+    usdToEur: num(process.env.USD_TO_EUR, 0.92),
   },
 
   stripe: {

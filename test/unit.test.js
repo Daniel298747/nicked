@@ -4,7 +4,10 @@ import { formatTime, parseTime } from '../src/utils/time.js';
 import { parseModelJson, validateVerification, normalizeDetectorResponse, zonesSchema } from '../src/services/aiJson.js';
 import { findLoadedTerms } from '../src/services/language.js';
 import { frameRateFor } from '../src/services/verify.js';
-import { shopUpdateFromStripeEvent } from '../src/services/stripe.js';
+import { stripeEventPlan } from '../src/services/stripe.js';
+import { graduatedAmount, quote, normalizeSelection, entitlementsFromSubscription, kindOf, PRICE_DEFS, lineItemsFor } from '../src/services/pricing.js';
+import { localDate, usageLabel } from '../src/services/usage.js';
+import { hasPaidAccess } from '../src/middleware/shop.js';
 import { buildFacts, assembleMarkdown } from '../src/services/report.js';
 
 const frames = [39, 41, 43, 45].map((s) => ({ seconds: s, label: formatTime(s) }));
@@ -98,46 +101,101 @@ test('findLoadedTerms', () => {
   assert.deepEqual(findLoadedTerms('Got NICKED'), ['nicked']);
 });
 
-test('Stripe: checkout.session.completed activates the shop by metadata', () => {
-  const u = shopUpdateFromStripeEvent({
-    type: 'checkout.session.completed',
-    data: { object: { mode: 'subscription', payment_status: 'paid', metadata: { shopId: 'abc' }, customer: 'cus_1', subscription: 'sub_1', customer_details: { email: 'Owner@Shop.ie' } } },
-  });
-  assert.equal(u.match.shopId, 'abc');
-  assert.equal(u.set.subscriptionStatus, 'active');
-  assert.equal(u.set.stripeSubscriptionId, 'sub_1');
-  assert.equal(u.activate, true);
-  assert.equal(shopUpdateFromStripeEvent({ type: 'checkout.session.completed', data: { object: { mode: 'payment' } } }), null);
+// ---------- Offer & Stripe ----------
+const prices = Object.fromEntries(Object.entries(PRICE_DEFS).map(([k, d]) => [k, {
+  lookup_key: k, currency: 'eur', recurring: { interval: d.interval }, metadata: { nicked_kind: d.kind },
+  ...(d.tiers ? { billing_scheme: 'tiered', tiers: d.tiers.map((t) => ({ ...t, up_to: t.up_to === 'inf' ? null : t.up_to })) } : { unit_amount: d.unit_amount }),
+}]));
+
+test('graduated camera pricing matches the offer spec examples', () => {
+  const m = prices.camera_monthly.tiers;
+  assert.equal(graduatedAmount(m, 1), 2900);
+  assert.equal(graduatedAmount(m, 2), 5800);
+  assert.equal(graduatedAmount(m, 4), 9600); // €96
+  assert.equal(graduatedAmount(m, 8), 15600); // €156
+  assert.equal(graduatedAmount(prices.camera_yearly.tiers, 4), 96000); // €960 upfront
 });
 
-test('Stripe: invoice.paid records a payment (new and old API shapes)', () => {
-  const newer = shopUpdateFromStripeEvent({
-    type: 'invoice.paid',
-    created: 1760000000,
-    data: { object: { id: 'in_1', customer: 'cus_1', amount_paid: 2900, currency: 'eur', parent: { subscription_details: { subscription: 'sub_1', metadata: { shopId: 'abc' } } }, lines: { data: [{ period: { end: 1762600000 } }] }, status_transitions: { paid_at: 1760000001 } } },
-  });
-  assert.equal(newer.match.shopId, 'abc');
-  assert.equal(newer.match.subscriptionId, 'sub_1');
-  assert.equal(newer.payment.amount, 2900);
-  assert.equal(newer.set.subscriptionStatus, 'active');
-  assert.ok(newer.set.currentPeriodEnd instanceof Date);
-
-  const older = shopUpdateFromStripeEvent({
-    type: 'invoice.paid',
-    data: { object: { id: 'in_2', customer: 'cus_1', subscription: 'sub_9', amount_paid: 2900, currency: 'eur' } },
-  });
-  assert.equal(older.match.subscriptionId, 'sub_9');
+test('quote: cameras plus add-ons, only the ones chosen', () => {
+  const q = quote(normalizeSelection({ cameras: 4, interval: 'month', addons: { always_on: 1, retention: true, extra_locations: 1 } }), prices);
+  assert.deepEqual(q.lines.map((l) => [l.lookupKey, l.quantity, l.amount]), [
+    ['camera_monthly', 4, 9600], ['always_on_monthly', 1, 1600], ['retention_monthly', 1, 500], ['location_monthly', 1, 1900],
+  ]);
+  assert.equal(q.total, 13600);
+  assert.match(q.display, /136/);
+  assert.deepEqual(lineItemsFor(normalizeSelection({ cameras: 2 })).map((l) => l.lookupKey), ['camera_monthly']);
+  const yearly = quote(normalizeSelection({ cameras: 4, interval: 'year' }), prices);
+  assert.equal(yearly.total, 96000);
 });
 
-test('Stripe: subscription events map statuses and never downgrade to inactive', () => {
-  const del = shopUpdateFromStripeEvent({ type: 'customer.subscription.deleted', data: { object: { id: 'sub_1', status: 'canceled', customer: 'cus_1' } } });
-  assert.equal(del.set.subscriptionStatus, 'canceled');
-  const incomplete = shopUpdateFromStripeEvent({ type: 'customer.subscription.updated', data: { object: { id: 'sub_1', status: 'incomplete', customer: 'cus_1' } } });
-  assert.equal(incomplete.set.subscriptionStatus, undefined);
-  const pastDue = shopUpdateFromStripeEvent({ type: 'customer.subscription.updated', data: { object: { id: 'sub_1', status: 'past_due', items: { data: [{ current_period_end: 1762600000 }] } } } });
-  assert.equal(pastDue.set.subscriptionStatus, 'past_due');
-  assert.ok(pastDue.set.currentPeriodEnd instanceof Date);
-  assert.equal(shopUpdateFromStripeEvent({ type: 'charge.refunded', data: { object: {} } }), null);
+test('selection validation', () => {
+  assert.throws(() => normalizeSelection({ cameras: 0 }), /between 1 and 50/);
+  assert.throws(() => normalizeSelection({ cameras: 2, addons: { always_on: 3 } }), /at most as many cameras/);
+  assert.throws(() => normalizeSelection({ cameras: 2, interval: 'week' }), /interval/);
+  assert.deepEqual(normalizeSelection({ cameras: '3', interval: 'yearly', retention: 'true' }), { cameras: 3, interval: 'year', alwaysOn: 0, retention: true, extraLocations: 0 });
+});
+
+test('entitlements are re-derived from subscription items (lookup key or metadata)', () => {
+  const sub = {
+    status: 'active',
+    items: { data: [
+      { quantity: 4, current_period_end: 1762690000, price: { lookup_key: 'camera_monthly', recurring: { interval: 'month' } } },
+      { quantity: 6, price: { lookup_key: null, metadata: { nicked_kind: 'always_on' } } }, // old Founding price: key moved, metadata stays
+      { quantity: 1, price: { lookup_key: 'retention_monthly' } },
+      { quantity: 2, price: { lookup_key: 'location_monthly' } },
+    ] },
+  };
+  const e = entitlementsFromSubscription(sub);
+  assert.equal(e.camerasAllowed, 4);
+  assert.equal(e.camerasAlwaysOn, 4); // capped at the camera count
+  assert.equal(e.retentionDays, 90);
+  assert.equal(e.locationsAllowed, 3);
+  assert.equal(e.planInterval, 'month');
+  assert.equal(e.subscriptionStatus, 'active');
+  assert.ok(e.currentPeriodEnd instanceof Date);
+  assert.equal(entitlementsFromSubscription({ status: 'incomplete', items: { data: [] } }).subscriptionStatus, undefined);
+  assert.equal(kindOf({ lookup_key: 'location_yearly' }), 'location');
+});
+
+test('webhook plans: checkout links + fetches, invoice.paid activates, payment_failed starts grace', () => {
+  const checkout = stripeEventPlan({ type: 'checkout.session.completed', data: { object: { mode: 'subscription', client_reference_id: 'shop1', customer: 'cus_1', subscription: 'sub_1' } } });
+  assert.equal(checkout.match.shopId, 'shop1');
+  assert.equal(checkout.fetchSubscription, 'sub_1');
+  assert.equal(checkout.set.stripeSubscriptionId, 'sub_1');
+
+  const paid = stripeEventPlan({ type: 'invoice.paid', created: 1760000000, data: { object: { id: 'in_1', customer: 'cus_1', amount_paid: 9600, currency: 'eur', parent: { subscription_details: { subscription: 'sub_1', metadata: { shop_id: 'shop1' } } } } } });
+  assert.equal(paid.set.subscriptionStatus, 'active');
+  assert.equal(paid.set.graceUntil, null);
+  assert.equal(paid.payment.amount, 9600);
+  assert.equal(paid.match.shopId, 'shop1');
+  assert.equal(paid.firstPayment, true);
+
+  const failed = stripeEventPlan({ type: 'invoice.payment_failed', data: { object: { customer: 'cus_1', subscription: 'sub_1' } } });
+  assert.equal(failed.grace, 'start');
+  assert.equal(failed.set.subscriptionStatus, 'past_due');
+
+  const deleted = stripeEventPlan({ type: 'customer.subscription.deleted', data: { object: { id: 'sub_1', customer: 'cus_1', metadata: { shop_id: 'shop1' } } } });
+  assert.equal(deleted.set.subscriptionStatus, 'canceled');
+  assert.equal(deleted.onlyIfLinked, true);
+
+  const updated = stripeEventPlan({ type: 'customer.subscription.updated', data: { object: { id: 'sub_1', items: { data: [] } } } });
+  assert.ok(updated.syncSubscription);
+  assert.equal(stripeEventPlan({ type: 'checkout.session.completed', data: { object: { mode: 'payment' } } }), null);
+});
+
+test('paid access: active, or past_due inside the grace period', () => {
+  const now = new Date('2026-10-10T12:00:00Z');
+  assert.equal(hasPaidAccess({ subscriptionStatus: 'active' }, now), true);
+  assert.equal(hasPaidAccess({ subscriptionStatus: 'past_due', graceUntil: new Date('2026-10-12T12:00:00Z') }, now), true);
+  assert.equal(hasPaidAccess({ subscriptionStatus: 'past_due', graceUntil: new Date('2026-10-09T12:00:00Z') }, now), false);
+  assert.equal(hasPaidAccess({ subscriptionStatus: 'canceled' }, now), false);
+});
+
+test('usage: shop-local dates and the usage bar label', () => {
+  assert.equal(localDate('Europe/Dublin', new Date('2026-10-10T23:30:00Z')), '2026-10-11'); // already tomorrow in Dublin (IST)
+  assert.equal(localDate('America/New_York', new Date('2026-10-10T23:30:00Z')), '2026-10-10');
+  assert.equal(usageLabel(27000, 43200), '7.5 of 12 hours today');
+  assert.equal(usageLabel(0, 86400), '0 of 24 hours today');
 });
 
 test('incident facts come from data, report has the checklist and disclaimer', () => {

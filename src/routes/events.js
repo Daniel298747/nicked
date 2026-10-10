@@ -8,6 +8,7 @@ import { Clip } from '../models/Clip.js';
 import { Incident } from '../models/Incident.js';
 import { buildFacts, newReference, writeNarrative, assembleMarkdown } from '../services/report.js';
 import { describeAiError } from '../services/openrouter.js';
+import { recordAi, localDate } from '../services/usage.js';
 import { AppError, notFound } from '../utils/errors.js';
 
 const router = Router();
@@ -132,6 +133,14 @@ router.post('/:id/incident', requireActive, async (req, res) => {
   } catch (err) {
     throw new AppError(`Couldn't write the report: ${describeAiError(err)} Try again.`, 502, 'REPORT_FAILED');
   }
+
+  await recordAi({
+    shopId: req.shop._id,
+    cameraId: clip.camera,
+    clipId: clip._id,
+    date: clip.camera ? localDate(req.shop.timezone) : undefined,
+    calls: written.call ? [written.call] : [],
+  }).catch((err) => console.error('[recordAi]', err.message));
 
   const data = {
     shop: req.shop._id,

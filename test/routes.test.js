@@ -23,6 +23,8 @@ const shop = {
   name: 'Demo Corner Shop',
   subscriptionStatus: 'inactive',
   payments: [],
+  freeScanUsed: true,
+  set(k, v) { this[k] = v; },
   save: async () => {},
   toPublic() { return { id: this.id, subscriptionStatus: this.subscriptionStatus, payments: this.payments }; },
 };
@@ -38,7 +40,10 @@ before(async () => {
     Incident: (await import('../src/models/Incident.js')).Incident,
     StripeEvent: (await import('../src/models/StripeEvent.js')).StripeEvent,
     Stripe: (await import('stripe')).default,
+    Camera: (await import('../src/models/Camera.js')).Camera,
   };
+  // No cameras in these tests unless a test says otherwise
+  mock.method(M.Camera, 'findOne', () => ({ sort: async () => null }));
   mock.method(M.Shop, 'findById', async () => shop);
   mock.method(M.Shop, 'findOne', () => ({ sort: async () => shop, then: (r) => r(shop) }));
 
@@ -168,12 +173,13 @@ test('stripe webhook: signed invoice.paid activates the shop and records the pay
   const seen = new Set();
   const exists = mock.method(M.StripeEvent, 'exists', async ({ _id }) => (seen.has(_id) ? { _id } : null));
   const create = mock.method(M.StripeEvent, 'create', async ({ _id }) => seen.add(_id));
+  const founding = mock.method(M.Shop, 'countDocuments', async () => 3);
 
   const payload = JSON.stringify({
     id: 'evt_test_1', object: 'event', type: 'invoice.paid', created: 1760090000,
     data: { object: {
       id: 'in_test_1', object: 'invoice', customer: 'cus_test', amount_paid: 2900, currency: 'eur',
-      parent: { subscription_details: { subscription: 'sub_test', metadata: { shopId: shop.id } } },
+      parent: { subscription_details: { subscription: 'sub_test', metadata: { shop_id: shop.id } } },
       lines: { data: [{ period: { end: 1762690000 } }] }, status_transitions: { paid_at: 1760090000 },
     } },
   });
@@ -191,11 +197,15 @@ test('stripe webhook: signed invoice.paid activates the shop and records the pay
   assert.equal(shop.payments.length, 1);
   assert.equal(shop.payments[0].amount, 2900);
 
+  assert.equal(shop.isFounding, true); // 4th shop to pay
+  assert.ok(shop.firstPaidAt instanceof Date);
+
   const second = await send(); // Stripe retry of the same event
   assert.equal(second.duplicate, true);
   assert.equal(shop.payments.length, 1);
   exists.mock.restore();
   create.mock.restore();
+  founding.mock.restore();
 });
 
 test('unknown route → JSON 404', async () => {
@@ -238,23 +248,123 @@ test('evidence: thumbnail and cited frames are served as images, with URLs in th
   findOne.mock.restore();
 });
 
-test('retention: old footage is deleted unless it backs an incident report', async () => {
+test('retention: footage past the shop retention period is deleted unless it backs a report', async () => {
   const { runRetention } = await import('../src/jobs/retention.js');
   const deleted = [];
+  const cutoffs = [];
   const mk = (id) => ({ _id: id, storedPath: path.join(tmp, `${id}.mp4`), deleteOne: async () => deleted.push(id) });
   const stubs = [
+    mock.method(M.Shop, 'find', () => ({ select: async () => [{ _id: 's30', retentionDays: 30 }, { _id: 's90', retentionDays: 90 }] })),
     mock.method(M.Clip, 'find', async (q) => {
-      assert.ok(q.createdAt.$lt instanceof Date);
-      return [mk('old-with-report'), mk('old-plain')];
+      cutoffs.push([q.shop, Math.round((Date.now() - q.createdAt.$lt) / 86_400_000)]);
+      return q.shop === 's30' ? [mk('old-with-report'), mk('old-plain')] : [];
     }),
     mock.method(M.Incident, 'exists', async ({ clip }) => (clip === 'old-with-report' ? { _id: 'i1' } : null)),
     mock.method(M.Incident, 'find', async () => []),
     mock.method(M.Incident, 'deleteMany', async () => ({})),
     mock.method(M.Event, 'deleteMany', async () => ({})),
   ];
-  const r = await runRetention({ days: 30 });
+  const r = await runRetention();
   assert.deepEqual(r, { deleted: 1, keptForIncidents: 1 });
   assert.deepEqual(deleted, ['old-plain']);
-  assert.deepEqual(await runRetention({ days: 0 }), { deleted: 0, keptForIncidents: 0 });
+  assert.deepEqual(cutoffs, [['s30', 30], ['s90', 90]]); // 90 days with the retention add-on
   stubs.forEach((s) => s.mock.restore());
+});
+
+test('free scan: one clip up to an hour for a shop that never subscribed, then the paywall', async () => {
+  const video = path.join(tmp, 'free.mp4');
+  execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=duration=2:size=320x180:rate=25', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', video]);
+  Object.assign(shop, { subscriptionStatus: 'inactive', freeScanUsed: false });
+  const create = mock.method(M.Clip, 'create', async (doc) => ({ ...doc, id: 'c2', toPublic: () => ({ id: 'c2', freeScan: doc.freeScan }) }));
+  const findById = mock.method(M.Clip, 'findById', async () => null);
+
+  let res = await fetch(`${base}/api/clips`, { method: 'POST', body: uploadForm('free.mp4', readFileSync(video)) });
+  assert.equal(res.status, 202);
+  assert.equal((await res.json()).freeScan, true);
+  assert.equal(shop.freeScanUsed, true);
+
+  res = await fetch(`${base}/api/clips`, { method: 'POST', body: uploadForm('free.mp4', readFileSync(video)) });
+  assert.equal(res.status, 402);
+  const body = await res.json();
+  assert.equal(body.code, 'SUBSCRIPTION_REQUIRED');
+  assert.equal(body.details.freeScanAvailable, false);
+  create.mock.restore();
+  await new Promise((r) => setTimeout(r, 50));
+  findById.mock.restore();
+});
+
+test('daily cap: a camera that used its 12 hours today gets a 429', async () => {
+  const video = path.join(tmp, 'cap.mp4');
+  execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=duration=2:size=320x180:rate=25', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', video]);
+  shop.subscriptionStatus = 'active';
+  const { UsageDaily } = await import('../src/models/UsageDaily.js');
+  const camera = { _id: 'cam1', name: 'Camera 1', active: true, alwaysOn: false };
+  M.Camera.findOne.mock.mockImplementation(() => ({ sort: async () => camera }));
+  const usage = mock.method(UsageDaily, 'findOne', async () => ({ analysedSeconds: 43_200 }));
+
+  const res = await fetch(`${base}/api/clips`, { method: 'POST', body: uploadForm('cap.mp4', readFileSync(video)) });
+  assert.equal(res.status, 429);
+  const body = await res.json();
+  assert.equal(body.code, 'DAILY_CAP');
+  assert.match(body.error, /Camera 1 has used its 12 hours/);
+  assert.equal(body.details.usage.label, '12 of 12 hours today');
+  usage.mock.restore();
+  M.Camera.findOne.mock.mockImplementation(() => ({ sort: async () => null }));
+});
+
+test('cameras follow the plan: created on first payment, most recent paused on downgrade, revived on upgrade', async () => {
+  const { syncCameras } = await import('../src/services/usage.js');
+  const saved = [];
+  const save = mock.method(M.Camera.prototype, 'save', async function () { saved.push(this); this.createdAt ??= new Date(Date.now() + saved.length); return this; });
+  let existing = [];
+  const find = mock.method(M.Camera, 'find', () => ({ sort: async () => existing }));
+  const owner = { _id: '64b000000000000000000009', camerasAllowed: 4, camerasAlwaysOn: 1 };
+
+  await syncCameras(owner);
+  assert.deepEqual(saved.map((c) => c.name), ['Camera 1', 'Camera 2', 'Camera 3', 'Camera 4']);
+  assert.deepEqual(saved.map((c) => c.alwaysOn), [true, false, false, false]);
+
+  existing = saved.splice(0).map((c, i) => Object.assign(c, { createdAt: new Date(2026, 9, 10, 12, i) }));
+  await syncCameras({ ...owner, camerasAllowed: 2, camerasAlwaysOn: 0 });
+  assert.deepEqual(existing.map((c) => c.active), [true, true, false, false]); // most recently added paused
+  assert.equal(existing[0].alwaysOn, false);
+
+  await syncCameras({ ...owner, camerasAllowed: 3 });
+  assert.deepEqual(existing.map((c) => c.active), [true, true, true, false]); // oldest paused one comes back first
+  save.mock.restore();
+  find.mock.restore();
+});
+
+test('stripe webhook: customer.subscription.updated sets the plan from its items (4 cameras, 24/7, 90 days)', async () => {
+  Object.assign(shop, { subscriptionStatus: 'inactive', stripeSubscriptionId: undefined, camerasAllowed: 0 });
+  const exists = mock.method(M.StripeEvent, 'exists', async () => null);
+  const create = mock.method(M.StripeEvent, 'create', async () => ({}));
+  const find = mock.method(M.Camera, 'find', () => ({ sort: async () => [] }));
+  const save = mock.method(M.Camera.prototype, 'save', async function () { return this; });
+
+  const payload = JSON.stringify({
+    id: 'evt_sub_1', object: 'event', type: 'customer.subscription.updated', created: 1760090000,
+    data: { object: {
+      id: 'sub_new', object: 'subscription', status: 'active', customer: 'cus_test', metadata: { shop_id: shop.id },
+      items: { data: [
+        { id: 'si_1', quantity: 4, current_period_end: 1762690000, price: { lookup_key: 'camera_monthly', recurring: { interval: 'month' }, metadata: { nicked_kind: 'camera' } } },
+        { id: 'si_2', quantity: 1, price: { lookup_key: 'always_on_monthly', metadata: { nicked_kind: 'always_on' } } },
+        { id: 'si_3', quantity: 1, price: { lookup_key: 'retention_monthly', metadata: { nicked_kind: 'retention' } } },
+      ] },
+    } },
+  });
+  const stripe = new M.Stripe('sk_test_dummy');
+  const res = await fetch(`${base}/webhooks/stripe`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'stripe-signature': stripe.webhooks.generateTestHeaderString({ payload, secret: 'whsec_test_secret' }) },
+    body: payload,
+  });
+  assert.equal(res.status, 200);
+  assert.equal(shop.subscriptionStatus, 'active');
+  assert.equal(shop.stripeSubscriptionId, 'sub_new');
+  assert.equal(shop.camerasAllowed, 4);
+  assert.equal(shop.camerasAlwaysOn, 1);
+  assert.equal(shop.retentionDays, 90);
+  assert.equal(save.mock.callCount(), 4); // Camera 1–4 created
+  [exists, create, find, save].forEach((m) => m.mock.restore());
 });

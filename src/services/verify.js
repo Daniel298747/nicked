@@ -7,6 +7,7 @@ import { chat, describeAiError } from './openrouter.js';
 import { parseModelJson, validateVerification } from './aiJson.js';
 import { findLoadedTerms } from './language.js';
 import { cropFramesToPerson } from './crop.js';
+import { skipStillFrames } from './motion.js';
 import { formatTime, parseTime } from '../utils/time.js';
 
 export const VERIFY_SYSTEM_PROMPT = `You check possible incidents flagged by an automated person tracker on CCTV from a small independent shop.
@@ -103,11 +104,16 @@ async function runPass({ kind, frames, model, candidate, layoutNotes, usage, clo
     window: { startTime: frames[0]?.label, endTime: frames.at(-1)?.label },
   };
   const started = Date.now();
+  const call = { purpose: kind, model, promptTokens: 0, completionTokens: 0, cost: 0, latencyMs: 0 };
   const add = (u) => {
     usage.promptTokens += u.promptTokens;
     usage.completionTokens += u.completionTokens;
     usage.cost += u.cost;
+    call.promptTokens += u.promptTokens;
+    call.completionTokens += u.completionTokens;
+    call.cost += u.cost;
   };
+  base.call = call;
 
   let reply = await chat({ model, messages });
   add(reply.usage);
@@ -127,6 +133,7 @@ async function runPass({ kind, frames, model, candidate, layoutNotes, usage, clo
     try {
       result = validateVerification(parseModelJson(reply.text), frames);
     } catch (secondErr) {
+      Object.assign(call, { model: reply.model, latencyMs: Date.now() - started });
       return { ...base, verdict: 'error', error: `The model returned unusable JSON twice (${secondErr.message}).`, model: reply.model, latencyMs: Date.now() - started, framesReferenced: [], flags: [] };
     }
   }
@@ -134,6 +141,7 @@ async function runPass({ kind, frames, model, candidate, layoutNotes, usage, clo
   const flags = [...result.flags];
   const loaded = findLoadedTerms(`${result.reason} ${result.notes}`);
   if (loaded.length) flags.push(`AI wording used loaded terms (${loaded.join(', ')}). The report generator rewrites these neutrally.`);
+  Object.assign(call, { model: reply.model, latencyMs: Date.now() - started });
   return { ...base, ...result, flags, model: reply.model, latencyMs: Date.now() - started };
 }
 
@@ -181,19 +189,26 @@ export async function verifyCandidate({
   const span = candidate.endSec - candidate.startSec;
 
   try {
-    const overviewFrames = await sampleFrames(videoPath, path.join(root, 'overview'), {
+    const sampled = await sampleFrames(videoPath, path.join(root, 'overview'), {
       fps: frameRateFor(span),
       width: config.verify.frameWidth,
       startSec: candidate.startSec,
       durationSec: span,
     });
-    if (!overviewFrames.length) {
-      return { ai: { verdict: 'error', error: 'No frames could be read for this time window.', model, framesSent: 0, passes: [] }, eventType: 'ai_check_failed', flags: [], usage };
+    if (!sampled.length) {
+      return { ai: { verdict: 'error', error: 'No frames could be read for this time window.', model, framesSent: 0, passes: [] }, eventType: 'ai_check_failed', flags: [], usage, calls: [], framesSampled: 0, framesSent: 0 };
     }
+    // Motion skipping: don't pay to send frames where nothing changed.
+    const { kept: overviewFrames, skipped } = await skipStillFrames(sampled, {
+      minChanged: config.verify.motionMinChanged,
+      pixelDelta: config.verify.motionPixelDelta,
+    }).catch(() => ({ kept: sampled, skipped: 0 }));
+    let framesSampled = sampled.length;
 
     const overview = await runPass({ kind: 'overview', frames: overviewFrames, model, candidate, layoutNotes, usage });
     const passes = [overview];
     const flags = [...overview.flags];
+    if (skipped) flags.push(`Motion skipping: ${skipped} of ${sampled.length} overview frames were unchanged and not sent.`);
     let final = overview;
 
     if (shouldLookCloser(overview, candidate)) {
@@ -209,6 +224,7 @@ export async function verifyCandidate({
         const cropped = hasBoxes
           ? (await cropFramesToPerson(frames, candidate.boxes, { maxWidth: config.verify.closeLookWidth, sourceWidth: boxSourceWidth })) > 0
           : false;
+        framesSampled += frames.length;
         if (frames.length) {
           const close = await runPass({
             kind: 'close_look',
@@ -261,6 +277,9 @@ export async function verifyCandidate({
       eventType: VERDICT_TO_TYPE[final.verdict],
       flags,
       usage,
+      calls: passes.map((p) => p.call).filter(Boolean),
+      framesSampled,
+      framesSent: passes.reduce((s, p) => s + p.framesSent, 0),
     };
   } finally {
     await rm(root, { recursive: true, force: true });

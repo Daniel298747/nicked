@@ -7,6 +7,7 @@ import clipRoutes from './routes/clips.js';
 import eventRoutes from './routes/events.js';
 import incidentRoutes from './routes/incidents.js';
 import statsRoutes from './routes/stats.js';
+import cameraRoutes from './routes/cameras.js';
 import billingRoutes, { stripeWebhook } from './routes/billing.js';
 import { errorHandler, notFoundHandler } from './middleware/errors.js';
 
@@ -17,6 +18,7 @@ export function createApp() {
 
   // Stripe needs the raw body to verify the signature, so this route comes before express.json().
   app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), stripeWebhook);
+  app.post('/webhooks/stripe', express.raw({ type: 'application/json' }), stripeWebhook);
 
   app.use(express.json({ limit: '1mb' }));
 
@@ -28,7 +30,7 @@ export function createApp() {
       openrouter: Boolean(config.openrouter.apiKey),
       model: config.openrouter.detectModel,
       closeLookModel: config.verify.closeLook ? config.openrouter.zoomModel : null,
-      retentionDays: config.retentionDays,
+      retentionJob: Boolean(config.retentionDays),
       stripe: Boolean(config.stripe.secretKey),
       paywallBypassed: config.devBypassPaywall,
     });
@@ -36,6 +38,7 @@ export function createApp() {
 
   app.use('/api/shop', shopRoutes);
   app.use('/api/billing', billingRoutes);
+  app.use('/api/cameras', cameraRoutes);
   app.use('/api/clips', clipRoutes);
   app.use('/api/events', eventRoutes);
   app.use('/api/incidents', incidentRoutes);

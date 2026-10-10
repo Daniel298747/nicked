@@ -135,7 +135,7 @@ curl -s localhost:4000/api/stats
 
 ## Testing
 
-`npm test` runs 47 tests with no database or network: real ffmpeg on generated video, a local mock of OpenRouter, stubbed Mongo models, and signed Stripe webhooks.
+`npm test` runs 53 tests with no database or network: real ffmpeg on generated video, a local mock of OpenRouter, stubbed Mongo models, and signed Stripe webhooks.
 
 | Type | Case | Result |
 |---|---|---|
@@ -175,3 +175,25 @@ src/
 scripts/       seed-stripe, list-vision-models, compare-models
 docs/          DETECTOR_CONTRACT.md
 ```
+
+## Offer & billing (per the offer spec)
+
+€29/camera/month graduated (€29 ×2, €19 ×2, €15 after), yearly ×10. Add-ons: 24/7 (€16/camera), 90-day retention (€5), multi-location (€19/location). Free first scan: one clip ≤ 1 h. 12 h/day analysis per camera (24 h with 24/7). 3-day grace after a failed payment. First 100 paying shops flagged as Founding.
+
+```bash
+npm run stripe:seed   # 4 products, 8 prices (lookup keys camera_monthly … location_yearly)
+npm run shop:reset    # demo rehearsal: cancel the sandbox sub, back to "never subscribed"
+```
+
+| Method | Path | What it does |
+|---|---|---|
+| GET | `/api/billing/plan` | Tiers, add-ons, examples (1/2/4/8 cameras), free scan, guarantees — for the pricing page |
+| GET | `/api/billing/quote?cameras=4&interval=month&always_on=1&retention=true&extra_locations=0` | Line items + total (4 cameras = €96) |
+| POST | `/api/billing/checkout` | `{ cameras, interval: "month"\|"year", addons: { always_on, retention, extra_locations } }` → `{ url }` |
+| GET | `/api/billing/verify?session_id=` | Success page: read-only. Poll until `unlocked: true` (access only changes via webhook) |
+| POST | `/api/billing/cameras` | `{ cameras: 5 }` "Add a camera": updates quantity with proration; webhook creates/pauses cameras |
+| POST | `/webhooks/stripe` | Same handler as `/api/billing/webhook` |
+| GET | `/api/cameras` | Cameras + usage bar (`usage.label`: "7.5 of 12 hours today"), `summary`: "4 cameras active" |
+| POST / PATCH | `/api/cameras` / `/api/cameras/:id` | Add within plan limits / rename, location, 24/7 |
+
+Upload takes an optional `cameraId` (defaults to the first active camera). Errors: 402 `SUBSCRIPTION_REQUIRED` / `FREE_SCAN_TOO_LONG` / `CAMERA_LIMIT`, 429 `DAILY_CAP`. `GET /api/shop` returns `entitlements`, `freeScanAvailable`, `inGracePeriod`, `isFounding`. `GET /api/stats` adds measured AI cost per pass (`aiCostThisMonth`) and frames sampled vs sent (motion skipping).

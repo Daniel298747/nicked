@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { loadShop } from '../middleware/shop.js';
 import { Event } from '../models/Event.js';
 import { Clip } from '../models/Clip.js';
+import { AiCall } from '../models/AiCall.js';
 
 const router = Router();
 router.use(loadShop);
@@ -12,7 +13,7 @@ router.use(loadShop);
  */
 router.get('/', async (req, res) => {
   const events = await Event.find({ shop: req.shop._id }).select('ai.verdict ai.model ai.passes ai.cropped status').lean();
-  const clips = await Clip.find({ shop: req.shop._id, status: 'done' }).select('processingMs usage detector.ms').lean();
+  const clips = await Clip.find({ shop: req.shop._id, status: 'done' }).select('processingMs usage detector.ms framesSampled framesSent').lean();
 
   const count = (fn) => events.filter(fn).length;
   const candidates = events.length;
@@ -36,6 +37,17 @@ router.get('/', async (req, res) => {
     aiUnclearOwnerDismissed: reviewed.filter((e) => e.ai.verdict === 'unclear' && e.status === 'dismissed').length,
     aiNoOwnerConfirmed: reviewed.filter((e) => e.ai.verdict === 'no' && e.status === 'confirmed').length,
   };
+
+  const now = new Date();
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const callRows = await AiCall.aggregate([
+    { $match: { shop: req.shop._id, createdAt: { $gte: monthStart } } },
+    { $group: { _id: '$purpose', calls: { $sum: 1 }, usd: { $sum: '$costUsd' }, promptTokens: { $sum: '$promptTokens' } } },
+  ]);
+  const frameTotals = clips.reduce(
+    (acc, c) => ({ sampled: acc.sampled + (c.framesSampled || 0), sent: acc.sent + (c.framesSent || 0) }),
+    { sampled: 0, sent: 0 },
+  );
 
   const avg = (xs) => (xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : null);
   res.json({
@@ -74,7 +86,15 @@ router.get('/', async (req, res) => {
       avgProcessingMs: avg(clips.map((c) => c.processingMs).filter(Boolean)),
       avgDetectorMs: avg(clips.map((c) => c.detector?.ms).filter(Boolean)),
       totalAiCostUsd: +clips.reduce((s, c) => s + (c.usage?.cost || 0), 0).toFixed(4),
+      framesSampled: frameTotals.sampled,
+      framesSent: frameTotals.sent,
     },
+    // Measured from every OpenRouter call (ai_calls): use these numbers on the margins slide.
+    aiCostThisMonth: {
+      byPurpose: Object.fromEntries(callRows.map((r) => [r._id, { calls: r.calls, usd: +r.usd.toFixed(5), promptTokens: r.promptTokens }])),
+      totalUsd: +callRows.reduce((s, r) => s + r.usd, 0).toFixed(5),
+    },
+    marginAlert: req.shop.marginAlert || null,
   });
 });
 
